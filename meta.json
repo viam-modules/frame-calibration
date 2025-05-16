@@ -1,0 +1,28 @@
+{
+  "$schema": "https://dl.viam.dev/module.schema.json",
+  "module_id": "viam:frame-calibration",
+  "visibility": "public",
+  "url": "",
+  "description": "Modular generic service: arm-camera",
+  "models": [
+    {
+      "api": "rdk:service:generic",
+      "model": "viam:frame-calibration:arm-camera",
+      "short_description": "calibrate a camera mounted on an arm using apriltags",
+      "markdown_link": "README.md#model-viamframe-calibrationarm-camera"
+    }
+  ],
+  "applications": null,
+  "markdown_link": "README.md",
+  "entrypoint": "bin/frame-calibration",
+  "first_run": "",
+  "build": {
+    "build": "make module.tar.gz",
+    "setup": "make setup",
+    "path": "bin/module.tar.gz",
+    "arch": [
+      "linux/amd64",
+      "linux/arm64"
+    ]
+  }
+}
