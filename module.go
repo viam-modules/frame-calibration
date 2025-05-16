@@ -8,7 +8,6 @@ import (
 
 	armPb "go.viam.com/api/component/arm/v1"
 	"go.viam.com/rdk/components/arm"
-	"go.viam.com/rdk/components/camera"
 	"go.viam.com/rdk/components/posetracker"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/referenceframe"
@@ -48,10 +47,7 @@ func (cfg *Config) Validate(path string) ([]string, []string, error) {
 		return nil, nil, resource.NewConfigValidationFieldRequiredError(path, "arm")
 	}
 	deps = append(deps, cfg.Arm)
-	if cfg.Camera == "" {
-		return nil, nil, resource.NewConfigValidationFieldRequiredError(path, "camera")
-	}
-	deps = append(deps, cfg.Camera)
+
 	if cfg.PoseTracker == "" {
 		return nil, nil, resource.NewConfigValidationFieldRequiredError(path, "tracker")
 	}
@@ -66,7 +62,6 @@ type frameCalibrationArmCamera struct {
 	cfg         *Config
 	poseTracker posetracker.PoseTracker
 	arm         arm.Arm
-	cam         camera.Camera
 	positions   [][]referenceframe.Input
 	guess       spatialmath.Pose
 
@@ -123,12 +118,7 @@ func (s *frameCalibrationArmCamera) reconfigureWithConfig(ctx context.Context, d
 			return err
 		}
 	}
-	if s.cfg.Camera != conf.Camera {
-		s.cam, err = camera.FromDependencies(deps, conf.Camera)
-		if err != nil {
-			return err
-		}
-	}
+
 	if s.cfg.PoseTracker != conf.PoseTracker {
 		s.poseTracker, err = posetracker.FromDependencies(deps, conf.PoseTracker)
 		if err != nil {
