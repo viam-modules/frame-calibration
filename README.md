@@ -1,18 +1,19 @@
 # Module frame-calibration 
 
-This module is used for calibrating frames of cameras using Pose Trackers.
+This module is used for calibrating frames of cameras to be used in the frame system.
 
 ## Model viam:frame-calibration:arm-camera
 
-Provide a description of the model and any relevant information.
+This model is used to determine the frame of a camera mounted on an arm to be consumed by the frame system.
 
 ### Configuration
 The following attribute template can be used to configure this model:
 
 ```json
 {
-"attribute_1": <float>,
-"attribute_2": <string>
+"arm": <string>,
+"tracker": <string>,
+"joint_positions": [][]<float>,
 }
 ```
 
@@ -22,29 +23,31 @@ The following attributes are available for this model:
 
 | Name          | Type   | Inclusion | Description                |
 |---------------|--------|-----------|----------------------------|
-| `attribute_1` | float  | Required  | Description of attribute 1 |
-| `attribute_2` | string | Optional  | Description of attribute 2 |
+| `arm` | string | Required  | arm the camera is mounted on |
+| `tracker` | string | Required  | pose tracker configured to detect poses from a camera |
+| `joint_positions` | [][]float  | Required  | joint positions that the arm should move through |
 
 #### Example Configuration
 
 ```json
 {
-  "attribute_1": 1.0,
-  "attribute_2": "foo"
+  "arm": "my-arm",
+  "tracker": "my-tracker",
+  "joint_positions": [
+    [10,20,30,40,50,60], 
+    [60,50,40,30,20,10], 
+  ]
 }
 ```
 
 ### DoCommand
 
-If your model implements DoCommand, provide an example payload of each command that is supported and the arguments that can be used. If your model does not implement DoCommand, remove this section.
+#### moveArm DoCommand
 
-#### Example DoCommand
+This command will move the arm through any currently defined positions. Calibration will not be performed.
 
 ```json
 {
-  "command_name": {
-    "arg1": "foo",
-    "arg2": 1
-  }
+  "moveArm": ""
 }
 ```
