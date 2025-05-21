@@ -1,6 +1,6 @@
 # Module frame-calibration 
 
-Provide a description of the purpose of the module and any relevant information.
+This module is used for calibrating frames of cameras using Pose Trackers.
 
 ## Model viam:frame-calibration:arm-camera
 

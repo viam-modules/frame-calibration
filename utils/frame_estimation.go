@@ -17,6 +17,7 @@ import (
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/motionplan/ik"
 	"go.viam.com/rdk/referenceframe"
+	"go.viam.com/rdk/services/motion"
 	"go.viam.com/rdk/spatialmath"
 	"go.viam.com/utils"
 
@@ -57,6 +58,52 @@ func DiscoverTags(ctx context.Context, poseTracker posetracker.PoseTracker) ([]s
 func EstimateFramePose(
 	ctx context.Context,
 	a arm.Arm,
+	pt posetracker.PoseTracker,
+	expectedTags []string,
+	calibrationPositions [][]referenceframe.Input,
+	seedPose spatialmath.Pose,
+	collectNewData bool,
+) (spatialmath.Pose, error) {
+	var tagPoses []referenceframe.FrameSystemPoses
+	var err error
+	if collectNewData {
+		tagPoses, _, err = getTagPoses(ctx, a, pt, calibrationPositions)
+		if err != nil {
+			return nil, err
+		}
+		if err = saveToFile("poses.gob", posesToProtobuf(tagPoses)); err != nil {
+			return nil, err
+		}
+		if err = saveToFile("configurations.gob", calibrationPositions); err != nil {
+			return nil, err
+		}
+	}
+
+	var tagPosesFromFile []map[string]*commonpb.Pose
+	if err := loadFromFile("poses.gob", &tagPosesFromFile); err != nil {
+		return nil, err
+	}
+	var calibrationPositionsFromFile [][]referenceframe.Input
+	if err := loadFromFile("configurations.gob", &calibrationPositionsFromFile); err != nil {
+		return nil, err
+	}
+	printWorldStatePoses(a, protobufToPoses(tagPosesFromFile), seedPose, expectedTags, calibrationPositionsFromFile)
+
+	sol, err := minimize(ctx, a.ModelFrame(), protobufToPoses(tagPosesFromFile), expectedTags, calibrationPositionsFromFile, seedPose)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Println("Guess:", seedPose.Point(), seedPose.Orientation().Quaternion())
+	p := floatsToPose(sol[0].q)
+	fmt.Println(p.Point(), p.Orientation().Quaternion(), sol[0].cost)
+	printWorldStatePoses(a, protobufToPoses(tagPosesFromFile), p, expectedTags, calibrationPositionsFromFile)
+	return p, nil
+}
+
+func EstimateFramePoseWithMotion(
+	ctx context.Context,
+	a arm.Arm,
+	ms motion.Service,
 	pt posetracker.PoseTracker,
 	expectedTags []string,
 	calibrationPositions [][]referenceframe.Input,
@@ -254,6 +301,30 @@ func getTagPoses(
 	}
 	return allPoses, actualPositions, nil
 }
+
+// func getTagPosesWithMotion(
+// 	ctx context.Context,
+// 	ms motion.Service,
+// 	pt posetracker.PoseTracker,
+// 	positions [][]referenceframe.Input,
+// ) ([]referenceframe.FrameSystemPoses, error) {
+// 	allPoses := make([]referenceframe.FrameSystemPoses, 0, len(positions))
+// 	actualPositions := make([][]referenceframe.Input, 0)
+// 	for _, position := range positions {
+// 		err := a.MoveToJointPositions(ctx, position, nil)
+// 		if err != nil {
+// 			return nil, nil, err
+// 		}
+// 		time.Sleep(time.Second)
+
+// 		poses, err := pt.Poses(ctx, nil, nil)
+// 		if err != nil {
+// 			return nil, nil, err
+// 		}
+// 		allPoses = append(allPoses, poses)
+// 	}
+// 	return allPoses, actualPositions, nil
+// }
 
 func averageJointPosition(ctx context.Context, a arm.Arm, n int) ([]referenceframe.Input, error) {
 	avg := make([]referenceframe.Input, len(a.ModelFrame().DoF()))

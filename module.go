@@ -3,22 +3,36 @@ package framecalibration
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	calutils "framecalibration/utils"
 
+	"github.com/golang/geo/r3"
 	armPb "go.viam.com/api/component/arm/v1"
 	"go.viam.com/rdk/components/arm"
 	"go.viam.com/rdk/components/posetracker"
 	"go.viam.com/rdk/logging"
+	"go.viam.com/rdk/motionplan"
 	"go.viam.com/rdk/referenceframe"
 	"go.viam.com/rdk/resource"
 	"go.viam.com/rdk/services/generic"
+	"go.viam.com/rdk/services/motion"
 	"go.viam.com/rdk/spatialmath"
+
+	vizclient "github.com/viam-labs/motion-tools/client/client"
 )
 
 var (
 	ArmCamera        = resource.NewModel("viam", "frame-calibration", "arm-camera")
 	errUnimplemented = errors.New("unimplemented")
+	errNoPoses       = errors.New("no poses are configured for the arm to move through")
+	errNoDo          = errors.New("no valid DoCommand submitted")
+)
+
+const (
+	vizKey       = "viz"
+	calibrateKey = "runCalibration"
+	moveArmKey   = "moveArm"
 )
 
 func init() {
@@ -30,10 +44,12 @@ func init() {
 }
 
 type Config struct {
-	Arm            string      `json:"arm"`
-	Camera         string      `json:"camera"`
-	PoseTracker    string      `json:"tracker"`
+	Arm         string `json:"arm"`
+	PoseTracker string `json:"tracker"`
+	// joint positions are the easiest field for a user to access, but we may want to use poses in the config anyways
+	// or we use both with some predefined logic
 	JointPositions [][]float64 `json:"joint_positions"`
+	// TODO: add geometries
 }
 
 // Validate ensures all parts of the config are valid and important fields exist.
@@ -52,6 +68,10 @@ func (cfg *Config) Validate(path string) ([]string, []string, error) {
 		return nil, nil, resource.NewConfigValidationFieldRequiredError(path, "tracker")
 	}
 	deps = append(deps, cfg.PoseTracker)
+
+	// add motion dependency
+	deps = append(deps, resource.NewName(motion.API, resource.DefaultServiceName).String())
+
 	return deps, nil, nil
 }
 
@@ -63,7 +83,11 @@ type frameCalibrationArmCamera struct {
 	poseTracker posetracker.PoseTracker
 	arm         arm.Arm
 	positions   [][]referenceframe.Input
+	poses       []spatialmath.Pose
 	guess       spatialmath.Pose
+	motion      motion.Service
+	ws          *referenceframe.WorldState
+	obstacles   *referenceframe.GeometriesInFrame
 
 	cancelCtx  context.Context
 	cancelFunc func()
@@ -126,45 +150,23 @@ func (s *frameCalibrationArmCamera) reconfigureWithConfig(ctx context.Context, d
 		}
 	}
 
+	s.motion, err = motion.FromDependencies(deps, "builtin")
+	if err != nil {
+		return err
+	}
+
 	// always reconfigure positions
 	s.positions = [][]referenceframe.Input{}
 	for _, jointPos := range conf.JointPositions {
+		s.logger.Info("joints: ", jointPos)
 		pbPos := armPb.JointPositions{Values: jointPos}
 		// This will break when kinematics update
 		inputs := s.arm.ModelFrame().InputFromProtobuf(&pbPos)
 		s.positions = append(s.positions, inputs)
 	}
 
-	s.cfg = conf
-
-	return nil
-}
-
-func (s *frameCalibrationArmCamera) Name() resource.Name {
-	return s.name
-}
-
-func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[string]interface{}) (map[string]interface{}, error) {
-	resp := map[string]interface{}{}
-	if _, ok := cmd["runCalibration"]; ok {
-		pose, err := s.calibrate(ctx)
-		if err != nil {
-			return nil, err
-		}
-		resp["poseGuess"] = pose
-		s.guess = pose
-	}
-	return resp, nil
-}
-
-func (s *frameCalibrationArmCamera) Close(context.Context) error {
-	// Put close code here
-	s.cancelFunc()
-	return nil
-}
-
-func (s *frameCalibrationArmCamera) calibrate(ctx context.Context) (spatialmath.Pose, error) {
-	pos := [][]referenceframe.Input{{{1.5687246322631836}, {-2.8689214191832484}, {0.8763092199908655}, {1.413437767619751}, {-0.9621284643756312}, {-0.009279553090230763}},
+	//hardcoding positions for testing
+	s.positions = [][]referenceframe.Input{{{1.5687246322631836}, {-2.8689214191832484}, {0.8763092199908655}, {1.413437767619751}, {-0.9621284643756312}, {-0.009279553090230763}},
 		{{1.5874707698822021}, {-3.372202535668844}, {0.8752110640155237}, {2.0592481332966304}, {-1.091687027608053}, {-0.009339634572164357}},
 		{{1.599494218826294}, {-1.6834622822203578}, {-1.0425125360488892}, {2.058858795756958}, {-1.4727914969073692}, {0.3423517644405365}},
 		{{1.0668467283248901}, {-2.0526958904662074}, {-1.5102773904800415}, {3.1842085558125}, {-1.9495976606952115}, {0.3422858119010926}},
@@ -179,17 +181,150 @@ func (s *frameCalibrationArmCamera) calibrate(ctx context.Context) (spatialmath.
 		{{2.8682186603546143}, {1.012371464366577}, {-2.4522807598114014}, {1.5496253210255126}, {-0.18606788316835576}, {-0.03227883974184209}},
 		{{4.093472480773926}, {0.2988439041325072}, {-0.4326653480529785}, {0.15900163232769768}, {1.1006063222885132}, {-0.03229362169374639}},
 	}
+	s.poses = []spatialmath.Pose{}
+	for _, jointPos := range s.positions {
+		newPose, err := s.arm.ModelFrame().Transform(jointPos)
+		if err != nil {
+			return err
+		}
+		s.poses = append(s.poses, newPose)
+	}
+	// obstacle dimensions in mm
+	// hardcoding geometry for testing
+	obstaclePose := spatialmath.NewPose(r3.Vector{0, 0, -300}, &spatialmath.OrientationVectorDegrees{OZ: -1})
+	obstacle, err := spatialmath.NewBox(obstaclePose, r3.Vector{100, 100, 600}, "box1")
+	if err != nil {
+		return err
+	}
 
-	// move to initial position
-	err := s.arm.MoveToJointPositions(ctx, pos[0], nil)
+	geoms := referenceframe.NewGeometriesInFrame(
+		conf.Arm,
+		[]spatialmath.Geometry{obstacle},
+	)
+	s.obstacles = geoms
+
+	ws, err := referenceframe.NewWorldState(
+		[]*referenceframe.GeometriesInFrame{geoms},
+		[]*referenceframe.LinkInFrame{},
+	)
+	if err != nil {
+		return err
+	}
+	s.ws = ws
+
+	s.cfg = conf
+
+	return nil
+}
+
+func (s *frameCalibrationArmCamera) Name() resource.Name {
+	return s.name
+}
+
+func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[string]interface{}) (map[string]interface{}, error) {
+	resp := map[string]interface{}{}
+	if _, ok := cmd[calibrateKey]; ok {
+		pose, err := s.calibrate(ctx)
+		if err != nil {
+			return nil, err
+		}
+		resp["guessed frame"] = pose
+		s.guess = pose
+	}
+	if _, ok := cmd[vizKey]; ok {
+		err := s.viz(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("check that the viz server is running on your machine: %s", err.Error())
+		}
+		resp[vizKey] = "http://localhost:5173/"
+		resp["note"] = "you may need to rerun the command if the page is empty"
+	}
+	if _, ok := cmd[moveArmKey]; ok {
+		err := s.moveArm(ctx)
+		if err != nil {
+			return nil, err
+		}
+		resp[moveArmKey] = "success"
+	}
+	if len(resp) == 0 {
+		return nil, errNoDo
+	}
+	return resp, nil
+}
+
+func (s *frameCalibrationArmCamera) Close(context.Context) error {
+	// Put close code here
+	s.cancelFunc()
+	return nil
+}
+
+func (s *frameCalibrationArmCamera) viz(ctx context.Context) error {
+	armGeos, err := s.arm.Geometries(ctx, nil)
+	if err != nil {
+		return err
+	}
+	armGeomsInF := referenceframe.NewGeometriesInFrame(
+		referenceframe.World,
+		armGeos,
+	)
+
+	wsDrawing, err := referenceframe.NewWorldState(
+		[]*referenceframe.GeometriesInFrame{s.obstacles, armGeomsInF},
+		[]*referenceframe.LinkInFrame{},
+	)
+	if err != nil {
+		return err
+	}
+	fs := referenceframe.NewEmptyFrameSystem("blah")
+	frame0 := referenceframe.NewZeroStaticFrame(s.cfg.Arm)
+	err = fs.AddFrame(frame0, fs.World())
+	if err != nil {
+		return err
+	}
+	if err := vizclient.RemoveAllSpatialObjects(); err != nil {
+		return err
+	}
+
+	return vizclient.DrawWorldState(wsDrawing, fs, referenceframe.NewZeroInputs(fs))
+}
+
+func (s *frameCalibrationArmCamera) calibrate(ctx context.Context) (spatialmath.Pose, error) {
+	if len(s.poses) == 0 {
+		return nil, errNoPoses
+	}
+	// move to initial pose.
+	constraints := motionplan.NewEmptyConstraints()
+	posInF := referenceframe.NewPoseInFrame(referenceframe.World, s.poses[0])
+	req := motion.MoveReq{ComponentName: s.arm.Name(), Destination: posInF, WorldState: s.ws, Constraints: constraints}
+	_, err := s.motion.Move(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	// discover tags
+
+	// discover tags for pose estimation
 	tags, err := calutils.DiscoverTags(ctx, s.poseTracker)
 	if err != nil {
 		return nil, err
 	}
 
-	return calutils.EstimateFramePose(ctx, s.arm, s.poseTracker, tags, pos, s.guess, false)
+	return calutils.EstimateFramePose(ctx, s.arm, s.poseTracker, tags, s.positions, s.guess, false)
+}
+
+func (s *frameCalibrationArmCamera) moveArm(ctx context.Context) error {
+	if len(s.poses) == 0 {
+		return errNoPoses
+	}
+	constraints := motionplan.NewEmptyConstraints()
+	for index, pos := range s.poses {
+		s.logger.Debugf("moving to position %v, pose %v", index, pos)
+		posInF := referenceframe.NewPoseInFrame(referenceframe.World, pos)
+
+		req := motion.MoveReq{ComponentName: s.arm.Name(), Destination: posInF, WorldState: s.ws, Constraints: constraints}
+		_, err := s.motion.Move(ctx, req)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+
 }
