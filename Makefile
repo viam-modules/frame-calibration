@@ -39,3 +39,7 @@ all: test module.tar.gz
 
 setup:
 	go mod tidy
+
+license-check:
+	license_finder
+	
