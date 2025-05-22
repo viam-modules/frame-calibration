@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/gob"
 	"errors"
-	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"time"
@@ -15,6 +15,7 @@ import (
 	"go.viam.com/rdk/components/arm"
 	"go.viam.com/rdk/components/posetracker"
 	"go.viam.com/rdk/logging"
+	"go.viam.com/rdk/motionplan"
 	"go.viam.com/rdk/motionplan/ik"
 	"go.viam.com/rdk/referenceframe"
 	"go.viam.com/rdk/services/motion"
@@ -41,8 +42,6 @@ var limits = []referenceframe.Limit{
 	{Min: -2 * math.Pi, Max: 2 * math.Pi}, // Z
 }
 
-var logger = logging.NewLogger("client")
-
 func DiscoverTags(ctx context.Context, poseTracker posetracker.PoseTracker) ([]string, error) {
 	poses, err := poseTracker.Poses(ctx, nil, nil)
 	if err != nil {
@@ -55,95 +54,139 @@ func DiscoverTags(ctx context.Context, poseTracker posetracker.PoseTracker) ([]s
 	return tags, nil
 }
 
+// EstimateFramePose estimates the frame of a camera with respect to an arm using an arm's MoveToJointPositions.
+// this method can be used if there are no obstacles that may cause a collision with the arm.
 func EstimateFramePose(
 	ctx context.Context,
-	a arm.Arm,
-	pt posetracker.PoseTracker,
-	expectedTags []string,
-	calibrationPositions [][]referenceframe.Input,
-	seedPose spatialmath.Pose,
-	collectNewData bool,
+	req ReqFramePoseWithoutMotion,
+	dataCfg DataConfig,
+	logger logging.Logger,
 ) (spatialmath.Pose, error) {
 	var tagPoses []referenceframe.FrameSystemPoses
+	calibrationPositions := req.CalibrationJointPositions
 	var err error
-	if collectNewData {
-		tagPoses, _, err = getTagPoses(ctx, a, pt, calibrationPositions)
-		if err != nil {
+
+	if !dataCfg.LoadOldDataset {
+		if tagPoses, _, err = getTagPoses(ctx, req.Arm, req.PoseTracker, calibrationPositions); err != nil {
 			return nil, err
 		}
-		if err = saveToFile("poses.gob", posesToProtobuf(tagPoses)); err != nil {
+
+		if err := dataCfg.saveDataToFile(tagPoses, calibrationPositions); err != nil {
 			return nil, err
 		}
-		if err = saveToFile("configurations.gob", calibrationPositions); err != nil {
+	} else {
+		if tagPoses, calibrationPositions, err = dataCfg.loadDataFromFiles(); err != nil {
 			return nil, err
 		}
 	}
 
-	var tagPosesFromFile []map[string]*commonpb.Pose
-	if err := loadFromFile("poses.gob", &tagPosesFromFile); err != nil {
-		return nil, err
-	}
-	var calibrationPositionsFromFile [][]referenceframe.Input
-	if err := loadFromFile("configurations.gob", &calibrationPositionsFromFile); err != nil {
-		return nil, err
-	}
-	printWorldStatePoses(a, protobufToPoses(tagPosesFromFile), seedPose, expectedTags, calibrationPositionsFromFile)
+	printWorldStatePoses(req.Arm, tagPoses, req.SeedPose, req.ExpectedTags, calibrationPositions, logger)
 
-	sol, err := minimize(ctx, a.ModelFrame(), protobufToPoses(tagPosesFromFile), expectedTags, calibrationPositionsFromFile, seedPose)
+	sol, err := minimize(ctx, req.Arm.ModelFrame(), tagPoses, req.ExpectedTags, calibrationPositions, req.SeedPose, logger)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("Guess:", seedPose.Point(), seedPose.Orientation().Quaternion())
+	logger.Debug("Guess:", req.SeedPose.Point(), req.SeedPose.Orientation().Quaternion())
 	p := floatsToPose(sol[0].q)
-	fmt.Println(p.Point(), p.Orientation().Quaternion(), sol[0].cost)
-	printWorldStatePoses(a, protobufToPoses(tagPosesFromFile), p, expectedTags, calibrationPositionsFromFile)
+	logger.Debug(p.Point(), p.Orientation().Quaternion(), sol[0].cost)
+	printWorldStatePoses(req.Arm, tagPoses, req.SeedPose, req.ExpectedTags, calibrationPositions, logger)
 	return p, nil
 }
 
 func EstimateFramePoseWithMotion(
 	ctx context.Context,
-	a arm.Arm,
-	ms motion.Service,
-	pt posetracker.PoseTracker,
-	expectedTags []string,
-	calibrationPositions [][]referenceframe.Input,
-	seedPose spatialmath.Pose,
-	collectNewData bool,
+	req ReqFramePoseWithMotion,
+	dataCfg DataConfig,
+	logger logging.Logger,
 ) (spatialmath.Pose, error) {
 	var tagPoses []referenceframe.FrameSystemPoses
+	var jointPositions [][]referenceframe.Input
 	var err error
-	if collectNewData {
-		tagPoses, _, err = getTagPoses(ctx, a, pt, calibrationPositions)
-		if err != nil {
+
+	// the user wants to collect a new set of data from the arm
+	if !dataCfg.LoadOldDataset {
+		if tagPoses, jointPositions, err = getTagPosesWithMotion(ctx, req); err != nil {
 			return nil, err
 		}
-		if err = saveToFile("poses.gob", posesToProtobuf(tagPoses)); err != nil {
+		if err := dataCfg.saveDataToFile(tagPoses, jointPositions); err != nil {
 			return nil, err
 		}
-		if err = saveToFile("configurations.gob", calibrationPositions); err != nil {
+	} else {
+		if tagPoses, jointPositions, err = dataCfg.loadDataFromFiles(); err != nil {
 			return nil, err
 		}
 	}
 
-	var tagPosesFromFile []map[string]*commonpb.Pose
-	if err := loadFromFile("poses.gob", &tagPosesFromFile); err != nil {
-		return nil, err
-	}
-	var calibrationPositionsFromFile [][]referenceframe.Input
-	if err := loadFromFile("configurations.gob", &calibrationPositionsFromFile); err != nil {
-		return nil, err
-	}
-	printWorldStatePoses(a, protobufToPoses(tagPosesFromFile), seedPose, expectedTags, calibrationPositionsFromFile)
+	printWorldStatePoses(req.Arm, tagPoses, req.SeedPose, req.ExpectedTags, jointPositions, logger)
 
-	sol, err := minimize(ctx, a.ModelFrame(), protobufToPoses(tagPosesFromFile), expectedTags, calibrationPositionsFromFile, seedPose)
+	sol, err := minimize(ctx, req.Arm.ModelFrame(), tagPoses, req.ExpectedTags, jointPositions, req.SeedPose, logger)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("Guess:", seedPose.Point(), seedPose.Orientation().Quaternion())
+	logger.Debug("Initial Guess: ", req.SeedPose.Point(), req.SeedPose.Orientation().Quaternion())
 	p := floatsToPose(sol[0].q)
-	fmt.Println(p.Point(), p.Orientation().Quaternion(), sol[0].cost)
-	printWorldStatePoses(a, protobufToPoses(tagPosesFromFile), p, expectedTags, calibrationPositionsFromFile)
+	logger.Debug("Optimization Guess: ", p.Point(), p.Orientation().Quaternion(), sol[0].cost)
+	printWorldStatePoses(req.Arm, tagPoses, p, req.ExpectedTags, jointPositions, logger)
 	return p, nil
+}
+
+// ReqFramePoseWithMotion is the request to determine a camera's frame position using a motion service on a viam-server.
+// this method should be used if there are obstacles in the workspace that you wish to avoid.
+type ReqFramePoseWithMotion struct {
+	Arm              arm.Arm
+	PoseTracker      posetracker.PoseTracker
+	ExpectedTags     []string
+	CalibrationPoses []spatialmath.Pose
+	SeedPose         spatialmath.Pose
+	Motion           motion.Service
+	WS               *referenceframe.WorldState
+}
+
+// ReqFramePoseWithMotion is the request to estimate the frame of a camera with respect to an arm using an arm's MoveToJointPositions.
+// this method can be used if there are no obstacles that may cause a collision with the arm.
+type ReqFramePoseWithoutMotion struct {
+	Arm                       arm.Arm
+	PoseTracker               posetracker.PoseTracker
+	ExpectedTags              []string
+	CalibrationJointPositions [][]referenceframe.Input
+	SeedPose                  spatialmath.Pose
+}
+
+type DataConfig struct {
+	LoadOldDataset bool
+	SaveNewData    bool
+	DataPath       string
+}
+
+// SaveDataToFile saves data to files if SaveNewData is true
+func (cfg DataConfig) saveDataToFile(tagPoses []referenceframe.FrameSystemPoses, jointPositions [][]referenceframe.Input) error {
+	if !cfg.SaveNewData {
+		return nil
+	}
+	tagPosesFile := filepath.Clean(filepath.Join(cfg.DataPath, "poses.gob"))
+	armPositionsFile := filepath.Clean(filepath.Join(cfg.DataPath, "configurations.gob"))
+	if err := saveToFile(tagPosesFile, posesToProtobuf(tagPoses)); err != nil {
+		return err
+	}
+	if err := saveToFile(armPositionsFile, jointPositions); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (cfg DataConfig) loadDataFromFiles() ([]referenceframe.FrameSystemPoses, [][]referenceframe.Input, error) {
+	var tagPosesFromFile []map[string]*commonpb.Pose
+	var jointPositionsFromFile [][]referenceframe.Input
+	tagPosesFile := filepath.Clean(filepath.Join(cfg.DataPath, "poses.gob"))
+	armPositionsFile := filepath.Clean(filepath.Join(cfg.DataPath, "configurations.gob"))
+	if err := loadFromFile(tagPosesFile, &tagPosesFromFile); err != nil {
+		return nil, nil, err
+	}
+	tagPoses := protobufToPoses(tagPosesFromFile)
+	if err := loadFromFile(armPositionsFile, &jointPositionsFromFile); err != nil {
+		return nil, nil, err
+	}
+	return tagPoses, jointPositionsFromFile, nil
 }
 
 type basicNode struct {
@@ -158,6 +201,7 @@ func minimize(
 	tags []string,
 	calibrationPositions [][]referenceframe.Input,
 	seedPose spatialmath.Pose,
+	logger logging.Logger,
 ) ([]basicNode, error) {
 	lossFunction := func(input []float64) float64 {
 		testPose := floatsToPose(input)
@@ -193,7 +237,7 @@ func minimize(
 				}
 			}
 		}
-		// fmt.Println(cumSum, input)
+		// logger.Debug(cumSum, input)
 		return cumSum / float64(len(tags))
 	}
 
@@ -302,28 +346,54 @@ func getTagPoses(
 	return allPoses, actualPositions, nil
 }
 
-// func getTagPosesWithMotion(
-// 	ctx context.Context,
-// 	ms motion.Service,
-// 	pt posetracker.PoseTracker,
-// 	positions [][]referenceframe.Input,
-// ) ([]referenceframe.FrameSystemPoses, error) {
-// 	allPoses := make([]referenceframe.FrameSystemPoses, 0, len(positions))
-// 	actualPositions := make([][]referenceframe.Input, 0)
-// 	for _, position := range positions {
-// 		err := a.MoveToJointPositions(ctx, position, nil)
-// 		if err != nil {
-// 			return nil, nil, err
-// 		}
-// 		time.Sleep(time.Second)
+func getTagPosesWithMotion(
+	ctx context.Context,
+	req ReqFramePoseWithMotion,
+) ([]referenceframe.FrameSystemPoses, [][]referenceframe.Input, error) {
+	allPoses := make([]referenceframe.FrameSystemPoses, 0, len(req.CalibrationPoses))
+	actualPositions := make([][]referenceframe.Input, 0, len(req.CalibrationPoses))
+	constraints := motionplan.NewEmptyConstraints()
 
-// 		poses, err := pt.Poses(ctx, nil, nil)
-// 		if err != nil {
-// 			return nil, nil, err
-// 		}
-// 		allPoses = append(allPoses, poses)
+	for _, pos := range req.CalibrationPoses {
+		posInF := referenceframe.NewPoseInFrame(referenceframe.World, pos)
+		motionReq := motion.MoveReq{ComponentName: req.Arm.Name(), Destination: posInF, WorldState: req.WS, Constraints: constraints}
+		_, err := req.Motion.Move(ctx, motionReq)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		time.Sleep(time.Second)
+		j, err := averageJointPosition(ctx, req.Arm, 100)
+		if err != nil {
+			return nil, nil, err
+		}
+		actualPositions = append(actualPositions, j)
+
+		poses, err := req.PoseTracker.Poses(ctx, nil, nil)
+		if err != nil {
+			return nil, nil, err
+		}
+		allPoses = append(allPoses, poses)
+	}
+	return allPoses, actualPositions, nil
+}
+
+// func (s *frameCalibrationArmCamera) moveArm(ctx context.Context) error {
+// 	if len(s.poses) == 0 {
+// 		return errNoPoses
 // 	}
-// 	return allPoses, actualPositions, nil
+
+// 	for index, pos := range s.poses {
+// 		s.logger.Debugf("moving to position %v, pose %v", index, pos)
+// 		posInF := referenceframe.NewPoseInFrame(referenceframe.World, pos)
+
+// 		_, err := s.motion.Move(ctx, req)
+// 		if err != nil {
+// 			return err
+// 		}
+// 	}
+// 	return nil
+
 // }
 
 func averageJointPosition(ctx context.Context, a arm.Arm, n int) ([]referenceframe.Input, error) {
@@ -349,22 +419,23 @@ func printWorldStatePoses(
 	unknownPose spatialmath.Pose,
 	tags []string,
 	calibrationPositions [][]referenceframe.Input,
+	logger logging.Logger,
 ) error {
 	for _, tag := range tags {
-		fmt.Printf("Tag #%s\n", tag)
+		logger.Debugf("Tag #%s\n", tag)
 		for i, pose := range poses {
 			tagPose, ok := pose[tag]
 			if !ok {
 				continue
 			}
-			fmt.Printf("\tPose #%d\t", i)
+			logger.Debugf("\tPose #%d\t", i)
 			armPose, err := a.ModelFrame().Transform(calibrationPositions[i])
 			if err != nil {
-				fmt.Printf("\n")
+				logger.Debugf("\n")
 				return err
 			}
 			worldPose := spatialmath.Compose(spatialmath.Compose(armPose, unknownPose), tagPose.Pose())
-			fmt.Printf("%.3v\n", worldPose)
+			logger.Debugf("%.3v\n", worldPose)
 		}
 	}
 	return nil

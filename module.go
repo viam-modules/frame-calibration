@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 
 	calutils "framecalibration/utils"
 
@@ -78,16 +79,17 @@ func (cfg *Config) Validate(path string) ([]string, []string, error) {
 type frameCalibrationArmCamera struct {
 	name resource.Name
 
-	logger      logging.Logger
-	cfg         *Config
-	poseTracker posetracker.PoseTracker
-	arm         arm.Arm
-	positions   [][]referenceframe.Input
-	poses       []spatialmath.Pose
-	guess       spatialmath.Pose
-	motion      motion.Service
-	ws          *referenceframe.WorldState
-	obstacles   *referenceframe.GeometriesInFrame
+	logger        logging.Logger
+	cfg           *Config
+	poseTracker   posetracker.PoseTracker
+	arm           arm.Arm
+	positions     [][]referenceframe.Input
+	poses         []spatialmath.Pose
+	guess         spatialmath.Pose
+	motion        motion.Service
+	ws            *referenceframe.WorldState
+	obstacles     *referenceframe.GeometriesInFrame
+	cachedPlanDir string
 
 	cancelCtx  context.Context
 	cancelFunc func()
@@ -136,6 +138,8 @@ func (s *frameCalibrationArmCamera) Reconfigure(ctx context.Context, deps resour
 
 func (s *frameCalibrationArmCamera) reconfigureWithConfig(ctx context.Context, deps resource.Dependencies, conf *Config) error {
 	var err error
+
+	s.cachedPlanDir = os.Getenv("VIAM_MODULE_DATA")
 
 	s.arm, err = arm.FromDependencies(deps, conf.Arm)
 	if err != nil {
@@ -303,7 +307,11 @@ func (s *frameCalibrationArmCamera) calibrate(ctx context.Context) (spatialmath.
 		return nil, err
 	}
 
-	return calutils.EstimateFramePose(ctx, s.arm, s.poseTracker, tags, s.positions, s.guess, false)
+	dataCfg := calutils.DataConfig{DataPath: s.cachedPlanDir, SaveNewData: false, LoadOldDataset: false}
+	estimateReq := calutils.ReqFramePoseWithMotion{Arm: s.arm,
+		Motion: s.motion, PoseTracker: s.poseTracker, ExpectedTags: tags, CalibrationPoses: s.poses, SeedPose: s.guess, WS: s.ws}
+
+	return calutils.EstimateFramePoseWithMotion(ctx, estimateReq, dataCfg, s.logger)
 }
 
 func (s *frameCalibrationArmCamera) moveArm(ctx context.Context) error {
