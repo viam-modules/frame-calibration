@@ -33,6 +33,7 @@ const (
 	vizKey       = "viz"
 	calibrateKey = "runCalibration"
 	moveArmKey   = "moveArm"
+	vizAddress   = "http://localhost:5173/"
 )
 
 func init() {
@@ -232,7 +233,7 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 		if err != nil {
 			return nil, fmt.Errorf("check that the viz server is running on your machine: %s", err.Error())
 		}
-		resp[vizKey] = "http://localhost:5173/"
+		resp[vizKey] = vizAddress
 		resp["note"] = "you may need to rerun the command if the page is empty"
 	}
 	if _, ok := cmd[moveArmKey]; ok {
