@@ -136,18 +136,15 @@ func (s *frameCalibrationArmCamera) Reconfigure(ctx context.Context, deps resour
 
 func (s *frameCalibrationArmCamera) reconfigureWithConfig(ctx context.Context, deps resource.Dependencies, conf *Config) error {
 	var err error
-	if s.cfg.Arm != conf.Arm {
-		s.arm, err = arm.FromDependencies(deps, conf.Arm)
-		if err != nil {
-			return err
-		}
+
+	s.arm, err = arm.FromDependencies(deps, conf.Arm)
+	if err != nil {
+		return err
 	}
 
-	if s.cfg.PoseTracker != conf.PoseTracker {
-		s.poseTracker, err = posetracker.FromDependencies(deps, conf.PoseTracker)
-		if err != nil {
-			return err
-		}
+	s.poseTracker, err = posetracker.FromDependencies(deps, conf.PoseTracker)
+	if err != nil {
+		return err
 	}
 
 	s.motion, err = motion.FromDependencies(deps, "builtin")
@@ -158,7 +155,6 @@ func (s *frameCalibrationArmCamera) reconfigureWithConfig(ctx context.Context, d
 	// always reconfigure positions
 	s.positions = [][]referenceframe.Input{}
 	for _, jointPos := range conf.JointPositions {
-		s.logger.Info("joints: ", jointPos)
 		pbPos := armPb.JointPositions{Values: jointPos}
 		// This will break when kinematics update
 		inputs := s.arm.ModelFrame().InputFromProtobuf(&pbPos)
