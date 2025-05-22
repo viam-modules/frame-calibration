@@ -10,6 +10,7 @@ require (
 	go.viam.com/api v0.1.437
 	go.viam.com/rdk v0.75.1-0.20250516214232-33274219ddff
 	go.viam.com/test v1.2.4
+	go.viam.com/rdk v0.76.0
 	go.viam.com/utils v0.1.143
 )
 
