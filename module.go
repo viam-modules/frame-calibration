@@ -20,7 +20,9 @@ import (
 	"go.viam.com/rdk/services/generic"
 	"go.viam.com/rdk/services/motion"
 	"go.viam.com/rdk/spatialmath"
+	"go.viam.com/rdk/utils"
 
+	"github.com/erh/vmodutils"
 	vizclient "github.com/viam-labs/motion-tools/client/client"
 )
 
@@ -52,6 +54,17 @@ type Config struct {
 	// or we use both with some predefined logic
 	JointPositions [][]float64 `json:"joint_positions"`
 	// TODO: add geometries
+}
+
+func (cfg *Config) getConvertedAttributes() utils.AttributeMap {
+	attrMap := utils.AttributeMap{
+		"arm":             cfg.Arm,
+		"tracker":         cfg.PoseTracker,
+		"joint_positions": cfg.JointPositions,
+	}
+
+	return attrMap
+
 }
 
 // Validate ensures all parts of the config are valid and important fields exist.
@@ -252,6 +265,10 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 		return nil, errNoDo
 	}
 	return resp, nil
+}
+
+func (s *frameCalibrationArmCamera) updateCfg(ctx context.Context) error {
+	return vmodutils.UpdateComponentCloudAttributesFromModuleEnv(ctx, s.name, s.cfg.getConvertedAttributes(), s.logger)
 }
 
 func (s *frameCalibrationArmCamera) Close(context.Context) error {
