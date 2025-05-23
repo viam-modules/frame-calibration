@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	calutils "framecalibration/utils"
@@ -35,6 +36,7 @@ const (
 	vizKey       = "viz"
 	calibrateKey = "runCalibration"
 	moveArmKey   = "moveArm"
+	vizAddress   = "http://localhost:5173/"
 )
 
 func init() {
@@ -94,6 +96,7 @@ type frameCalibrationArmCamera struct {
 
 	cancelCtx  context.Context
 	cancelFunc func()
+	mu         sync.Mutex
 }
 
 func newFrameCalibrationArmCamera(ctx context.Context, deps resource.Dependencies, rawConf resource.Config, logger logging.Logger) (resource.Resource, error) {
@@ -126,6 +129,8 @@ func NewArmCamera(ctx context.Context, deps resource.Dependencies, name resource
 }
 
 func (s *frameCalibrationArmCamera) Reconfigure(ctx context.Context, deps resource.Dependencies, rawConf resource.Config) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	conf, err := resource.NativeConfig[*Config](rawConf)
 	if err != nil {
 		return err
@@ -223,6 +228,8 @@ func (s *frameCalibrationArmCamera) Name() resource.Name {
 }
 
 func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[string]interface{}) (map[string]interface{}, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	resp := map[string]interface{}{}
 	if _, ok := cmd[calibrateKey]; ok {
 		pose, err := s.calibrate(ctx)
@@ -238,7 +245,7 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 		if err != nil {
 			return nil, fmt.Errorf("check that the viz server is running on your machine: %s", err.Error())
 		}
-		resp[vizKey] = "http://localhost:5173/"
+		resp[vizKey] = vizAddress
 		resp["note"] = "you may need to rerun the command if the page is empty"
 	}
 	if _, ok := cmd[moveArmKey]; ok {
@@ -255,6 +262,8 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 }
 
 func (s *frameCalibrationArmCamera) Close(context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	// Put close code here
 	s.cancelFunc()
 	return nil
@@ -294,6 +303,8 @@ func (s *frameCalibrationArmCamera) calibrate(ctx context.Context) (spatialmath.
 	if len(s.poses) == 0 {
 		return nil, errNoPoses
 	}
+	// stop the arm at the end of calibration or an error occurring
+	defer s.arm.Stop(ctx, nil)
 	// move to initial pose.
 	constraints := motionplan.NewEmptyConstraints()
 	posInF := referenceframe.NewPoseInFrame(referenceframe.World, s.poses[0])
@@ -320,6 +331,8 @@ func (s *frameCalibrationArmCamera) moveArm(ctx context.Context) error {
 	if len(s.poses) == 0 {
 		return errNoPoses
 	}
+	// stop the arm at the end of calibration or an error occurring
+	defer s.arm.Stop(ctx, nil)
 	constraints := motionplan.NewEmptyConstraints()
 	for index, pos := range s.poses {
 		s.logger.Debugf("moving to position %v, pose %v", index, pos)
