@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/gob"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -87,8 +88,11 @@ func EstimateFramePose(
 		return nil, err
 	}
 	logger.Debug("Guess:", req.SeedPose.Point(), req.SeedPose.Orientation().Quaternion())
+	if len(sol[0].q) < 6 {
+		return nil, errors.New("invalid pose for solution")
+	}
 	p := floatsToPose(sol[0].q)
-	logger.Debug(p.Point(), p.Orientation().Quaternion(), sol[0].cost)
+	logger.Info(p.Point(), p.Orientation().Quaternion(), sol[0].cost)
 	printWorldStatePoses(req.Arm, tagPoses, req.SeedPose, req.ExpectedTags, calibrationPositions, logger)
 	return p, nil
 }
@@ -102,10 +106,9 @@ func EstimateFramePoseWithMotion(
 	var tagPoses []referenceframe.FrameSystemPoses
 	var jointPositions [][]referenceframe.Input
 	var err error
-
 	// the user wants to collect a new set of data from the arm
 	if !dataCfg.LoadOldDataset {
-		if tagPoses, jointPositions, err = getTagPosesWithMotion(ctx, req); err != nil {
+		if tagPoses, jointPositions, err = getTagPosesWithMotion(ctx, req, logger); err != nil {
 			return nil, err
 		}
 		if err := dataCfg.saveDataToFile(tagPoses, jointPositions); err != nil {
@@ -117,16 +120,19 @@ func EstimateFramePoseWithMotion(
 		}
 	}
 
-	printWorldStatePoses(req.Arm, tagPoses, req.SeedPose, req.ExpectedTags, jointPositions, logger)
+	// printWorldStatePoses(req.Arm, tagPoses, req.SeedPose, req.ExpectedTags, jointPositions, logger)
 
 	sol, err := minimize(ctx, req.Arm.ModelFrame(), tagPoses, req.ExpectedTags, jointPositions, req.SeedPose, logger)
 	if err != nil {
 		return nil, err
 	}
 	logger.Debug("Initial Guess: ", req.SeedPose.Point(), req.SeedPose.Orientation().Quaternion())
+	if len(sol[0].q) < 6 {
+		return nil, fmt.Errorf("invalid pose for solution: %v", sol[0].q)
+	}
 	p := floatsToPose(sol[0].q)
-	logger.Debug("Optimization Guess: ", p.Point(), p.Orientation().Quaternion(), sol[0].cost)
-	printWorldStatePoses(req.Arm, tagPoses, p, req.ExpectedTags, jointPositions, logger)
+	logger.Info("Optimization Guess: ", p.Point(), p.Orientation().Quaternion(), sol[0].cost)
+	// printWorldStatePoses(req.Arm, tagPoses, p, req.ExpectedTags, jointPositions, logger)
 	return p, nil
 }
 
@@ -204,6 +210,10 @@ func minimize(
 	logger logging.Logger,
 ) ([]basicNode, error) {
 	lossFunction := func(input []float64) float64 {
+		if len(input) < 6 {
+			logger.Error("invalid pose for input: ", input)
+			panic(fmt.Errorf("invalid pose for input: %v", input))
+		}
 		testPose := floatsToPose(input)
 
 		// make a map of tags to the pose they are measured at in world coordinates
@@ -237,7 +247,7 @@ func minimize(
 				}
 			}
 		}
-		// logger.Debug(cumSum, input)
+		// logger.Info(cumSum, input)
 		return cumSum / float64(len(tags))
 	}
 
@@ -312,7 +322,12 @@ IK:
 
 	orderedSolutions := make([]basicNode, 0)
 	for _, key := range keys {
-		orderedSolutions = append(orderedSolutions, basicNode{q: solutions[key], cost: key})
+		solution := solutions[key]
+		// if a solution is empty, set it to a high cost
+		if len(solution) == 0 {
+			key = math.MaxFloat64
+		}
+		orderedSolutions = append(orderedSolutions, basicNode{q: solution, cost: key})
 	}
 	return orderedSolutions, nil
 }
@@ -348,13 +363,14 @@ func getTagPoses(
 
 func getTagPosesWithMotion(
 	ctx context.Context,
-	req ReqFramePoseWithMotion,
+	req ReqFramePoseWithMotion, logger logging.Logger,
 ) ([]referenceframe.FrameSystemPoses, [][]referenceframe.Input, error) {
 	allPoses := make([]referenceframe.FrameSystemPoses, 0, len(req.CalibrationPoses))
 	actualPositions := make([][]referenceframe.Input, 0, len(req.CalibrationPoses))
 	constraints := motionplan.NewEmptyConstraints()
 
-	for _, pos := range req.CalibrationPoses {
+	for index, pos := range req.CalibrationPoses {
+		logger.Debugf("moving to position %v, pose %v", index, pos)
 		posInF := referenceframe.NewPoseInFrame(referenceframe.World, pos)
 		motionReq := motion.MoveReq{ComponentName: req.Arm.Name(), Destination: posInF, WorldState: req.WS, Constraints: constraints}
 		_, err := req.Motion.Move(ctx, motionReq)
@@ -377,24 +393,6 @@ func getTagPosesWithMotion(
 	}
 	return allPoses, actualPositions, nil
 }
-
-// func (s *frameCalibrationArmCamera) moveArm(ctx context.Context) error {
-// 	if len(s.poses) == 0 {
-// 		return errNoPoses
-// 	}
-
-// 	for index, pos := range s.poses {
-// 		s.logger.Debugf("moving to position %v, pose %v", index, pos)
-// 		posInF := referenceframe.NewPoseInFrame(referenceframe.World, pos)
-
-// 		_, err := s.motion.Move(ctx, req)
-// 		if err != nil {
-// 			return err
-// 		}
-// 	}
-// 	return nil
-
-// }
 
 func averageJointPosition(ctx context.Context, a arm.Arm, n int) ([]referenceframe.Input, error) {
 	avg := make([]referenceframe.Input, len(a.ModelFrame().DoF()))
