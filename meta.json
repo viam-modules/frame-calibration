@@ -3,7 +3,7 @@
   "module_id": "viam:frame-calibration",
   "visibility": "public",
   "url": "https://github.com/viam-modules/frame-calibration",
-  "description": "module to help with configuring the frame system",
+  "description": "module that uses a posetracker and arm to configure a frame system",
   "models": [
     {
       "api": "rdk:service:generic",
