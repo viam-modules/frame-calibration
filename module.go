@@ -355,8 +355,12 @@ func (s *frameCalibrationArmCamera) moveArm(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		jointFloats := referenceframe.InputsToFloats(jointPos)
-		allJointPos = append(allJointPos, jointFloats)
+		jointFloats, err := referenceframe.JointPositionsFromInputs(s.arm.ModelFrame(), jointPos)
+		if err != nil {
+			return err
+		}
+
+		allJointPos = append(allJointPos, jointFloats.Values)
 
 	}
 	s.cfg.JointPositions = allJointPos
