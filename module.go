@@ -337,7 +337,9 @@ func (s *frameCalibrationArmCamera) moveArm(ctx context.Context) error {
 	if len(s.poses) == 0 {
 		return errNoPoses
 	}
+
 	constraints := motionplan.NewEmptyConstraints()
+	allJointPos := [][]float64{}
 	for index, pos := range s.poses {
 		s.logger.Debugf("moving to position %v, pose %v", index, pos)
 		posInF := referenceframe.NewPoseInFrame(referenceframe.World, pos)
@@ -349,6 +351,18 @@ func (s *frameCalibrationArmCamera) moveArm(ctx context.Context) error {
 		}
 		// sleep to give time to check camera
 		time.Sleep(1 * time.Second)
+		jointPos, err := s.arm.JointPositions(ctx, nil)
+		if err != nil {
+			return err
+		}
+		jointFloats := referenceframe.InputsToFloats(jointPos)
+		allJointPos = append(allJointPos, jointFloats)
+
+	}
+	s.cfg.JointPositions = allJointPos
+	err := s.updateCfg(ctx)
+	if err != nil {
+		return err
 	}
 	return nil
 
