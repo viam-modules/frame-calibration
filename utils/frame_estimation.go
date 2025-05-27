@@ -120,7 +120,7 @@ func EstimateFramePoseWithMotion(
 		}
 	}
 
-	// printWorldStatePoses(req.Arm, tagPoses, req.SeedPose, req.ExpectedTags, jointPositions, logger)
+	printWorldStatePoses(req.Arm, tagPoses, req.SeedPose, req.ExpectedTags, jointPositions, logger)
 
 	sol, err := minimize(ctx, req.Arm.ModelFrame(), tagPoses, req.ExpectedTags, jointPositions, req.SeedPose, logger)
 	if err != nil {
@@ -132,7 +132,7 @@ func EstimateFramePoseWithMotion(
 	}
 	p := floatsToPose(sol[0].q)
 	logger.Info("Optimization Guess: ", p.Point(), p.Orientation().Quaternion(), sol[0].cost)
-	// printWorldStatePoses(req.Arm, tagPoses, p, req.ExpectedTags, jointPositions, logger)
+	printWorldStatePoses(req.Arm, tagPoses, p, req.ExpectedTags, jointPositions, logger)
 	return p, nil
 }
 
