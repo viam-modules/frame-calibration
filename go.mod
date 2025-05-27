@@ -5,7 +5,7 @@ go 1.23.8
 toolchain go1.24.3
 
 require (
-	github.com/erh/vmodutils v0.1.3
+	github.com/erh/vmodutils v0.1.5-0.20250526231959-e58744b3297b
 	github.com/golang/geo v0.0.0-20250509130527-0a13e5a5d53d
 	github.com/viam-labs/motion-tools v0.0.0-20250520180233-43bd3d761cd3
 	go.viam.com/api v0.1.437
@@ -216,5 +216,3 @@ require (
 	periph.io/x/conn/v3 v3.7.0 // indirect
 	periph.io/x/host/v3 v3.8.1-0.20230331112814-9f0d9f7d76db // indirect
 )
-
-replace github.com/erh/vmodutils => /Users/johnnicholson/viam-slam/random/vmodutils

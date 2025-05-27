@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"time"
 
 	calutils "framecalibration/utils"
@@ -34,9 +35,15 @@ var (
 )
 
 const (
-	vizKey       = "viz"
-	calibrateKey = "runCalibration"
-	moveArmKey   = "moveArm"
+	vizKey                    = "viz"
+	calibrateKey              = "runCalibration"
+	moveArmKey                = "moveArm"
+	savePosKey                = "saveCalibrationPosition"
+	saveAndUpdateKey          = "saveAndUpdatePositionKey"
+	getPositionsKey           = "getCalibrationPositions"
+	deletePosKey              = "deleteCalibrationPosition" // takes an index
+	clearCalibrationPositions = "clearCalibrationPositions"
+	updateConfigKey           = "updateCalibrationConfig"
 )
 
 func init() {
@@ -93,12 +100,12 @@ func (cfg *Config) Validate(path string) ([]string, []string, error) {
 type frameCalibrationArmCamera struct {
 	name resource.Name
 
-	logger        logging.Logger
-	cfg           *Config
-	poseTracker   posetracker.PoseTracker
-	arm           arm.Arm
-	positions     [][]referenceframe.Input
-	poses         []spatialmath.Pose
+	logger      logging.Logger
+	cfg         *Config
+	poseTracker posetracker.PoseTracker
+	arm         arm.Arm
+	positions   [][]referenceframe.Input
+	// poses         []spatialmath.Pose
 	guess         spatialmath.Pose
 	motion        motion.Service
 	ws            *referenceframe.WorldState
@@ -107,6 +114,11 @@ type frameCalibrationArmCamera struct {
 
 	cancelCtx  context.Context
 	cancelFunc func()
+}
+
+type positionOutput struct {
+	index    int
+	position []float64
 }
 
 func newFrameCalibrationArmCamera(ctx context.Context, deps resource.Dependencies, rawConf resource.Config, logger logging.Logger) (resource.Resource, error) {
@@ -180,29 +192,29 @@ func (s *frameCalibrationArmCamera) reconfigureWithConfig(ctx context.Context, d
 	}
 
 	//hardcoding positions for testing
-	s.positions = [][]referenceframe.Input{{{1.5687246322631836}, {-2.8689214191832484}, {0.8763092199908655}, {1.413437767619751}, {-0.9621284643756312}, {-0.009279553090230763}},
-		{{1.5874707698822021}, {-3.372202535668844}, {0.8752110640155237}, {2.0592481332966304}, {-1.091687027608053}, {-0.009339634572164357}},
-		{{1.599494218826294}, {-1.6834622822203578}, {-1.0425125360488892}, {2.058858795756958}, {-1.4727914969073692}, {0.3423517644405365}},
-		{{1.0668467283248901}, {-2.0526958904662074}, {-1.5102773904800415}, {3.1842085558125}, {-1.9495976606952115}, {0.3422858119010926}},
-		{{2.710968494415283}, {-1.8869949779906214}, {-1.8658866882324219}, {3.8552242952534175}, {0.2258821278810501}, {0.3423832952976227}},
-		{{2.4088399410247803}, {-2.73096813778066}, {-0.4833677113056183}, {4.110974951381348}, {0.22581766545772552}, {0.3424190878868103}},
-		{{2.2999038696289062}, {-2.7309800587096156}, {-0.4835145175457001}, {4.110954924220703}, {0.22584037482738495}, {0.34241911768913275}},
-		{{2.338528156280518}, {-2.9684068165221156}, {-0.40146079659461975}, {2.9424406725117187}, {0.17261449992656708}, {0.2677871882915497}},
-		{{2.387089252471924}, {-4.059374710122579}, {2.255565468464987}, {2.0867628294178466}, {-0.13651639619936162}, {-0.45258981386293584}},
-		// {{2.383829116821289}, {0.6873907285877685}, {-2.3855693340301514}, {1.55326692640271}, {-0.6222108046161098}, {-0.07863790193666631}},
-		// {{2.3837745189666752}, {1.1106418806263427}, {-2.4006066322326656}, {1.2128736215778808}, {-0.6221674124347132}, {-0.07856542268861944}},
-		// {{2.787996292114258}, {0.9157830911823729}, {-2.39770245552063}, {1.5495359140583493}, {-0.3036978880511683}, {0.05714798346161842}},
-		// {{2.8682186603546143}, {1.012371464366577}, {-2.4522807598114014}, {1.5496253210255126}, {-0.18606788316835576}, {-0.03227883974184209}},
-		// {{4.093472480773926}, {0.2988439041325072}, {-0.4326653480529785}, {0.15900163232769768}, {1.1006063222885132}, {-0.03229362169374639}},
-	}
-	s.poses = []spatialmath.Pose{}
-	for _, jointPos := range s.positions {
-		newPose, err := s.arm.ModelFrame().Transform(jointPos)
-		if err != nil {
-			return err
-		}
-		s.poses = append(s.poses, newPose)
-	}
+	// s.positions = [][]referenceframe.Input{{{1.5687246322631836}, {-2.8689214191832484}, {0.8763092199908655}, {1.413437767619751}, {-0.9621284643756312}, {-0.009279553090230763}},
+	// 	{{1.5874707698822021}, {-3.372202535668844}, {0.8752110640155237}, {2.0592481332966304}, {-1.091687027608053}, {-0.009339634572164357}},
+	// 	{{1.599494218826294}, {-1.6834622822203578}, {-1.0425125360488892}, {2.058858795756958}, {-1.4727914969073692}, {0.3423517644405365}},
+	// 	{{1.0668467283248901}, {-2.0526958904662074}, {-1.5102773904800415}, {3.1842085558125}, {-1.9495976606952115}, {0.3422858119010926}},
+	// 	{{2.710968494415283}, {-1.8869949779906214}, {-1.8658866882324219}, {3.8552242952534175}, {0.2258821278810501}, {0.3423832952976227}},
+	// 	{{2.4088399410247803}, {-2.73096813778066}, {-0.4833677113056183}, {4.110974951381348}, {0.22581766545772552}, {0.3424190878868103}},
+	// 	{{2.2999038696289062}, {-2.7309800587096156}, {-0.4835145175457001}, {4.110954924220703}, {0.22584037482738495}, {0.34241911768913275}},
+	// 	{{2.338528156280518}, {-2.9684068165221156}, {-0.40146079659461975}, {2.9424406725117187}, {0.17261449992656708}, {0.2677871882915497}},
+	// 	{{2.387089252471924}, {-4.059374710122579}, {2.255565468464987}, {2.0867628294178466}, {-0.13651639619936162}, {-0.45258981386293584}},
+	// {{2.383829116821289}, {0.6873907285877685}, {-2.3855693340301514}, {1.55326692640271}, {-0.6222108046161098}, {-0.07863790193666631}},
+	// {{2.3837745189666752}, {1.1106418806263427}, {-2.4006066322326656}, {1.2128736215778808}, {-0.6221674124347132}, {-0.07856542268861944}},
+	// {{2.787996292114258}, {0.9157830911823729}, {-2.39770245552063}, {1.5495359140583493}, {-0.3036978880511683}, {0.05714798346161842}},
+	// {{2.8682186603546143}, {1.012371464366577}, {-2.4522807598114014}, {1.5496253210255126}, {-0.18606788316835576}, {-0.03227883974184209}},
+	// {{4.093472480773926}, {0.2988439041325072}, {-0.4326653480529785}, {0.15900163232769768}, {1.1006063222885132}, {-0.03229362169374639}},
+	// }
+	// s.poses = []spatialmath.Pose{}
+	// for _, jointPos := range s.positions {
+	// 	newPose, err := s.arm.ModelFrame().Transform(jointPos)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	s.poses = append(s.poses, newPose)
+	// }
 	// obstacle dimensions in mm
 	// hardcoding geometry for testing
 	obstaclePose := spatialmath.NewPose(r3.Vector{0, 0, -300}, &spatialmath.OrientationVectorDegrees{OZ: -1})
@@ -237,36 +249,119 @@ func (s *frameCalibrationArmCamera) Name() resource.Name {
 
 func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[string]interface{}) (map[string]interface{}, error) {
 	resp := map[string]interface{}{}
-	if _, ok := cmd[calibrateKey]; ok {
-		pose, err := s.calibrate(ctx)
-		if err != nil {
-			s.logger.Error(err)
-			return nil, err
+	for key, value := range cmd {
+		switch key {
+		case calibrateKey:
+			numAttempts, ok := value.(int)
+			if !ok {
+				// check if it was a string
+				strAttempts, ok := value.(string)
+				// if it wasn't a string or it was't empty, yell at the user
+				if !ok || strAttempts != "" {
+					resp["err"] = fmt.Sprintf("the input should be a positive integer or an empty string")
+				}
+			}
+			for i := range numAttempts {
+				pose, err := s.calibrate(ctx)
+				if err != nil {
+					return nil, err
+				}
+				respNum := fmt.Sprintf("calibration pose %v", i)
+				resp[respNum] = pose
+				s.guess = pose
+			}
+
+		case vizKey:
+			err := s.viz(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("check that the viz server is running on your machine: %s", err.Error())
+			}
+			resp[vizKey] = "http://localhost:5173/"
+			resp["note - viz"] = "you may need to rerun the command if the page is empty"
+		case moveArmKey:
+			err := s.moveArm(ctx)
+			if err != nil {
+				return nil, err
+			}
+			resp[moveArmKey] = "success"
+		case savePosKey:
+			pos, err := s.arm.JointPositions(ctx, nil)
+			if err != nil {
+				return nil, err
+			}
+			s.positions = append(s.positions, pos)
+			resp[savePosKey] = "joint position saved"
+		case saveAndUpdateKey:
+			pos, err := s.arm.JointPositions(ctx, nil)
+			if err != nil {
+				return nil, err
+			}
+			jointFloats, err := referenceframe.JointPositionsFromInputs(s.arm.ModelFrame(), pos)
+			if err != nil {
+				return nil, err
+			}
+			s.cfg.JointPositions = append(s.cfg.JointPositions, jointFloats.Values)
+
+			if err := s.updateCfg(ctx); err != nil {
+				return nil, err
+			}
+
+			resp[saveAndUpdateKey] = fmt.Sprintf("joint position %v added to config", len(s.cfg.JointPositions))
+			resp["note - config update"] = "config changes may take a few seconds to update"
+		case deletePosKey:
+			index, ok := value.(int)
+			if !ok {
+				return nil, fmt.Errorf("removing position, expected int got %v", reflect.TypeOf(value))
+			}
+			if index > len(s.positions) {
+				return nil, fmt.Errorf("index %v is out of range, only %v positions are set", reflect.TypeOf(value), len(s.positions))
+			}
+			s.positions = deletePositionFromArr(s.positions, index)
+			resp[deletePosKey] = "position deleted"
+			// fallthrough to print updated positions
+			fallthrough
+		case getPositionsKey:
+			outputs := []positionOutput{}
+			if len(s.positions) == 0 {
+				return nil, errors.New("no positions are set")
+			}
+			for index, pos := range s.positions {
+				jointFloats, err := referenceframe.JointPositionsFromInputs(s.arm.ModelFrame(), pos)
+				if err != nil {
+					return nil, err
+				}
+				out := positionOutput{index: index, position: jointFloats.Values}
+				outputs = append(outputs, out)
+			}
+			resp[getPositionsKey] = outputs
+
+		case clearCalibrationPositions:
+			s.positions = [][]referenceframe.Input{}
+			resp[clearCalibrationPositions] = "positions removed"
+		case updateConfigKey:
+			if err := s.updateCfg(ctx); err != nil {
+				return nil, err
+			}
+			resp[updateConfigKey] = "config updated"
+			resp["note - config update"] = "config changes may take a few seconds to update"
+
+		default:
 		}
-		resp["guessed frame"] = pose
-		s.guess = pose
+
 	}
-	if _, ok := cmd[vizKey]; ok {
-		err := s.viz(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("check that the viz server is running on your machine: %s", err.Error())
-		}
-		resp[vizKey] = "http://localhost:5173/"
-		resp["note"] = "you may need to rerun the command if the page is empty"
-	}
-	if _, ok := cmd[moveArmKey]; ok {
-		err := s.moveArm(ctx)
-		if err != nil {
-			return nil, err
-		}
-		resp[moveArmKey] = "success"
-	}
+
 	if len(resp) == 0 {
 		return nil, errNoDo
 	}
 	return resp, nil
 }
 
+func deletePositionFromArr(arr [][]referenceframe.Input, index int) [][]referenceframe.Input {
+	newArr := make([][]referenceframe.Input, 0)
+	newArr = append(newArr, arr[:index]...)
+	newArr = append(newArr, arr[index+1:]...)
+	return newArr
+}
 func (s *frameCalibrationArmCamera) updateCfg(ctx context.Context) error {
 	return vmodutils.UpdateComponentCloudAttributesFromModuleEnv(ctx, s.name, s.cfg.getConvertedAttributes(), s.logger)
 }
@@ -275,6 +370,18 @@ func (s *frameCalibrationArmCamera) Close(context.Context) error {
 	// Put close code here
 	s.cancelFunc()
 	return nil
+}
+
+func (s *frameCalibrationArmCamera) calibrationPoses() ([]spatialmath.Pose, error) {
+	poses := []spatialmath.Pose{}
+	for _, jointPos := range s.positions {
+		newPose, err := s.arm.ModelFrame().Transform(jointPos)
+		if err != nil {
+			return nil, err
+		}
+		poses = append(poses, newPose)
+	}
+	return poses, nil
 }
 
 func (s *frameCalibrationArmCamera) viz(ctx context.Context) error {
@@ -308,15 +415,19 @@ func (s *frameCalibrationArmCamera) viz(ctx context.Context) error {
 }
 
 func (s *frameCalibrationArmCamera) calibrate(ctx context.Context) (spatialmath.Pose, error) {
-	if len(s.poses) == 0 {
+	if len(s.positions) == 0 {
 		return nil, errNoPoses
+	}
+	// get poses
+	poses, err := s.calibrationPoses()
+	if err != nil {
+		return nil, err
 	}
 	// move to initial pose.
 	constraints := motionplan.NewEmptyConstraints()
-	posInF := referenceframe.NewPoseInFrame(referenceframe.World, s.poses[0])
+	posInF := referenceframe.NewPoseInFrame(referenceframe.World, poses[0])
 	req := motion.MoveReq{ComponentName: s.arm.Name(), Destination: posInF, WorldState: s.ws, Constraints: constraints}
-	_, err := s.motion.Move(ctx, req)
-	if err != nil {
+	if _, err = s.motion.Move(ctx, req); err != nil {
 		return nil, err
 	}
 
@@ -328,19 +439,24 @@ func (s *frameCalibrationArmCamera) calibrate(ctx context.Context) (spatialmath.
 
 	dataCfg := calutils.DataConfig{DataPath: s.cachedPlanDir, SaveNewData: false, LoadOldDataset: false}
 	estimateReq := calutils.ReqFramePoseWithMotion{Arm: s.arm,
-		Motion: s.motion, PoseTracker: s.poseTracker, ExpectedTags: tags, CalibrationPoses: s.poses, SeedPose: s.guess, WS: s.ws}
+		Motion: s.motion, PoseTracker: s.poseTracker, ExpectedTags: tags, CalibrationPoses: poses, SeedPose: s.guess, WS: s.ws}
 
 	return calutils.EstimateFramePoseWithMotion(ctx, estimateReq, dataCfg, s.logger)
 }
 
 func (s *frameCalibrationArmCamera) moveArm(ctx context.Context) error {
-	if len(s.poses) == 0 {
+	if len(s.positions) == 0 {
 		return errNoPoses
+	}
+	// get poses
+	poses, err := s.calibrationPoses()
+	if err != nil {
+		return err
 	}
 
 	constraints := motionplan.NewEmptyConstraints()
-	allJointPos := [][]float64{}
-	for index, pos := range s.poses {
+	// allJointPos := [][]float64{}
+	for index, pos := range poses {
 		s.logger.Debugf("moving to position %v, pose %v", index, pos)
 		posInF := referenceframe.NewPoseInFrame(referenceframe.World, pos)
 
@@ -351,23 +467,23 @@ func (s *frameCalibrationArmCamera) moveArm(ctx context.Context) error {
 		}
 		// sleep to give time to check camera
 		time.Sleep(1 * time.Second)
-		jointPos, err := s.arm.JointPositions(ctx, nil)
-		if err != nil {
-			return err
-		}
-		jointFloats, err := referenceframe.JointPositionsFromInputs(s.arm.ModelFrame(), jointPos)
-		if err != nil {
-			return err
-		}
+		// jointPos, err := s.arm.JointPositions(ctx, nil)
+		// if err != nil {
+		// 	return err
+		// }
+		// jointFloats, err := referenceframe.JointPositionsFromInputs(s.arm.ModelFrame(), jointPos)
+		// if err != nil {
+		// 	return err
+		// }
 
-		allJointPos = append(allJointPos, jointFloats.Values)
+		// allJointPos = append(allJointPos, jointFloats.Values)
 
 	}
-	s.cfg.JointPositions = allJointPos
-	err := s.updateCfg(ctx)
-	if err != nil {
-		return err
-	}
+	// s.cfg.JointPositions = allJointPos
+	// err := s.updateCfg(ctx)
+	// if err != nil {
+	// 	return err
+	// }
 	return nil
 
 }
