@@ -430,7 +430,6 @@ func printWorldStatePoses(
 			logger.Debugf("\tPose #%d\t", i)
 			armPose, err := a.ModelFrame().Transform(calibrationPositions[i])
 			if err != nil {
-				logger.Debugf("\n")
 				return err
 			}
 			worldPose := spatialmath.Compose(spatialmath.Compose(armPose, unknownPose), tagPose.Pose())

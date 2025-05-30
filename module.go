@@ -234,7 +234,6 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 	if _, ok := cmd[calibrateKey]; ok {
 		pose, err := s.calibrate(ctx)
 		if err != nil {
-			s.logger.Error(err)
 			return nil, err
 		}
 		resp["guessed frame"] = pose
