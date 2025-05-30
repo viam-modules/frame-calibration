@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"sync"
 	"time"
 
 	calutils "framecalibration/utils"
@@ -44,6 +45,7 @@ const (
 	deletePosKey              = "deleteCalibrationPosition" // takes an index
 	clearCalibrationPositions = "clearCalibrationPositions"
 	updateConfigKey           = "updateCalibrationConfig"
+	vizAddress                = "http://localhost:5173/"
 )
 
 func init() {
@@ -114,6 +116,7 @@ type frameCalibrationArmCamera struct {
 
 	cancelCtx  context.Context
 	cancelFunc func()
+	mu         sync.Mutex
 }
 
 type positionOutput struct {
@@ -151,6 +154,8 @@ func NewArmCamera(ctx context.Context, deps resource.Dependencies, name resource
 }
 
 func (s *frameCalibrationArmCamera) Reconfigure(ctx context.Context, deps resource.Dependencies, rawConf resource.Config) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	conf, err := resource.NativeConfig[*Config](rawConf)
 	if err != nil {
 		return err
@@ -248,6 +253,8 @@ func (s *frameCalibrationArmCamera) Name() resource.Name {
 }
 
 func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[string]interface{}) (map[string]interface{}, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	resp := map[string]interface{}{}
 	for key, value := range cmd {
 		switch key {
@@ -367,6 +374,8 @@ func (s *frameCalibrationArmCamera) updateCfg(ctx context.Context) error {
 }
 
 func (s *frameCalibrationArmCamera) Close(context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	// Put close code here
 	s.cancelFunc()
 	return nil
