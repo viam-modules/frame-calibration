@@ -30,6 +30,7 @@ const (
 	randSeed               = 0
 	orientationScaleFactor = 10.
 	iterations             = 10000
+	dof6                   = 6
 )
 
 var limits = []referenceframe.Limit{
@@ -88,7 +89,7 @@ func EstimateFramePose(
 		return nil, err
 	}
 	logger.Debug("Guess:", req.SeedPose.Point(), req.SeedPose.Orientation().Quaternion())
-	if len(sol[0].q) < 6 {
+	if len(sol[0].q) < dof6 {
 		return nil, errors.New("invalid pose for solution")
 	}
 	p := floatsToPose(sol[0].q)
@@ -127,7 +128,7 @@ func EstimateFramePoseWithMotion(
 		return nil, err
 	}
 	logger.Debug("Initial Guess: ", req.SeedPose.Point(), req.SeedPose.Orientation().Quaternion())
-	if len(sol[0].q) < 6 {
+	if len(sol[0].q) < dof6 {
 		return nil, fmt.Errorf("invalid pose for solution: %v", sol[0].q)
 	}
 	p := floatsToPose(sol[0].q)
@@ -210,7 +211,7 @@ func minimize(
 	logger logging.Logger,
 ) ([]basicNode, error) {
 	lossFunction := func(input []float64) float64 {
-		if len(input) < 6 {
+		if len(input) < dof6 {
 			logger.Error("invalid pose for input: ", input)
 			panic(fmt.Errorf("invalid pose for input: %v", input))
 		}
