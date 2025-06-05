@@ -39,6 +39,7 @@ const (
 	vizKey                    = "viz"
 	calibrateKey              = "runCalibration"
 	moveArmKey                = "moveArm"
+	moveArmIndexKey           = "moveArmToPosition"
 	checkTagsKey              = "checkTags"
 	savePosKey                = "saveCalibrationPosition"
 	saveAndUpdateKey          = "saveAndUpdatePosition"
@@ -300,6 +301,29 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 
 			resp[saveAndUpdateKey] = fmt.Sprintf("joint position %v added to config", len(s.cfg.JointPositions))
 			resp["note - config update"] = "config changes may take a few seconds to update"
+		case moveArmIndexKey:
+			indexFloat, ok := value.(float64)
+			if !ok {
+				return nil, fmt.Errorf("removing position, expected int got %v", reflect.TypeOf(value))
+			}
+			index := int(indexFloat)
+			if index > len(s.positions) {
+				return nil, fmt.Errorf("index %v is out of range, only %v positions are set", reflect.TypeOf(value), len(s.positions))
+			}
+			goalPose, err := s.arm.ModelFrame().Transform(s.positions[index])
+			if err != nil {
+				return nil, err
+			}
+			if err := s.callMove(ctx, goalPose); err != nil {
+				return nil, err
+			}
+			// discover tags for pose estimation
+			tags, err := calutils.DiscoverTags(ctx, s.poseTracker)
+			if err != nil {
+				return nil, err
+			}
+			resp[moveArmIndexKey] = len(tags)
+
 		case deletePosKey:
 			indexFloat, ok := value.(float64)
 			if !ok {
@@ -464,14 +488,10 @@ func (s *frameCalibrationArmCamera) moveArm(ctx context.Context, delay int) ([]i
 	}
 
 	numTags := make([]int, 0)
-	constraints := motionplan.NewEmptyConstraints()
 	for index, pos := range poses {
 		s.logger.Debugf("moving to position %v, pose %v", index, pos)
-		posInF := referenceframe.NewPoseInFrame(referenceframe.World, pos)
 
-		req := motion.MoveReq{ComponentName: s.arm.Name(), Destination: posInF, WorldState: s.ws, Constraints: constraints}
-		_, err := s.motion.Move(ctx, req)
-		if err != nil {
+		if err := s.callMove(ctx, pos); err != nil {
 			return nil, err
 		}
 		// sleep to give time to check camera
@@ -486,4 +506,16 @@ func (s *frameCalibrationArmCamera) moveArm(ctx context.Context, delay int) ([]i
 
 	return numTags, nil
 
+}
+
+func (s *frameCalibrationArmCamera) callMove(ctx context.Context, pose spatialmath.Pose) error {
+	constraints := motionplan.NewEmptyConstraints()
+
+	posInF := referenceframe.NewPoseInFrame(referenceframe.World, pose)
+
+	req := motion.MoveReq{ComponentName: s.arm.Name(), Destination: posInF, WorldState: s.ws, Constraints: constraints}
+	if _, err := s.motion.Move(ctx, req); err != nil {
+		return err
+	}
+	return nil
 }
