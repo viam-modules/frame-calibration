@@ -200,7 +200,7 @@ func (s *frameCalibrationArmCamera) reconfigureWithConfig(ctx context.Context, d
 	// obstacle dimensions in mm
 	// hardcoding geometry for testing
 	obstaclePose := spatialmath.NewPose(r3.Vector{0, 0, -300}, &spatialmath.OrientationVectorDegrees{OZ: -1})
-	obstacle, err := spatialmath.NewBox(obstaclePose, r3.Vector{100, 100, 600}, "box1")
+	obstacle, err := spatialmath.NewBox(obstaclePose, r3.Vector{150, 150, 600}, "box1")
 	if err != nil {
 		return err
 	}
@@ -268,11 +268,12 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				s.logger.Infof("expected int got %v", reflect.TypeOf(value))
 			}
 			seconds := int(secondsFloat)
-			err := s.moveArm(ctx, seconds)
+			numTags, err := s.moveArm(ctx, seconds)
 			if err != nil {
 				return nil, err
 			}
 			resp[moveArmKey] = "success"
+			resp["tags seen"] = numTags
 		case savePosKey:
 			pos, err := s.arm.JointPositions(ctx, nil)
 			if err != nil {
@@ -448,20 +449,21 @@ func (s *frameCalibrationArmCamera) calibrate(ctx context.Context) (spatialmath.
 	return calutils.EstimateFramePoseWithMotion(ctx, estimateReq, dataCfg, s.logger)
 }
 
-func (s *frameCalibrationArmCamera) moveArm(ctx context.Context, delay int) error {
+func (s *frameCalibrationArmCamera) moveArm(ctx context.Context, delay int) ([]int, error) {
 	if len(s.positions) == 0 {
-		return errNoPoses
+		return nil, errNoPoses
 	}
 	// get poses
 	poses, err := s.calibrationPoses()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if delay == 0 {
 		delay = 1
 	}
 
+	numTags := make([]int, 0)
 	constraints := motionplan.NewEmptyConstraints()
 	for index, pos := range poses {
 		s.logger.Debugf("moving to position %v, pose %v", index, pos)
@@ -470,13 +472,18 @@ func (s *frameCalibrationArmCamera) moveArm(ctx context.Context, delay int) erro
 		req := motion.MoveReq{ComponentName: s.arm.Name(), Destination: posInF, WorldState: s.ws, Constraints: constraints}
 		_, err := s.motion.Move(ctx, req)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		// sleep to give time to check camera
 		time.Sleep(time.Duration(delay) * time.Second)
+		tags, err := calutils.DiscoverTags(ctx, s.poseTracker)
+		if err != nil {
+			return nil, err
+		}
+		numTags = append(numTags, len(tags))
 
 	}
 
-	return nil
+	return numTags, nil
 
 }
