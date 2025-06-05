@@ -237,7 +237,7 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 	for key, value := range cmd {
 		switch key {
 		case calibrateKey:
-			numAttempts, ok := value.(int)
+			numAttempts, ok := value.(float64)
 			if !ok {
 				// check if it was a string
 				strAttempts, ok := value.(string)
@@ -245,8 +245,10 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				if !ok || strAttempts != "" {
 					resp["warn"] = fmt.Sprintf("the input should be a positive integer or an empty string")
 				}
+				numAttempts = 1
 			}
-			for i := range numAttempts {
+
+			for i := range int(numAttempts) {
 				pose, err := s.calibrate(ctx)
 				if err != nil {
 					return nil, err
@@ -317,6 +319,7 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 			if err := s.callMove(ctx, goalPose); err != nil {
 				return nil, err
 			}
+			time.Sleep(1 * time.Second)
 			// discover tags for pose estimation
 			tags, err := calutils.DiscoverTags(ctx, s.poseTracker)
 			if err != nil {
