@@ -93,7 +93,7 @@ func EstimateFramePose(
 		return nil, 0, errors.New("invalid pose for solution")
 	}
 	p := floatsToPose(sol[0].q)
-	logger.Info(p.Point(), p.Orientation().Quaternion(), sol[0].cost)
+	logger.Info("Optimization Guess: ", p.Point(), p.Orientation().Quaternion(), sol[0].cost)
 	printWorldStatePoses(req.Arm, tagPoses, req.SeedPose, req.ExpectedTags, calibrationPositions, logger)
 	return p, sol[0].cost, nil
 }
@@ -325,7 +325,6 @@ IK:
 	for _, key := range keys {
 		solution := solutions[key]
 		if len(solution) == 0 {
-			logger.Info("yo no solution")
 			continue
 		}
 

@@ -124,6 +124,11 @@ type positionOutput struct {
 	Position []float64 `json:"position"`
 }
 
+type calOutput struct {
+	Frame referenceframe.LinkConfig `json:"frame"`
+	Cost  float64                   `json:"cost"`
+}
+
 func newFrameCalibrationArmCamera(ctx context.Context, deps resource.Dependencies, rawConf resource.Config, logger logging.Logger) (resource.Resource, error) {
 	conf, err := resource.NativeConfig[*Config](rawConf)
 	if err != nil {
@@ -228,31 +233,6 @@ func (s *frameCalibrationArmCamera) Name() resource.Name {
 	return s.name
 }
 
-type calOutput struct {
-	Frame referenceframe.LinkConfig `json:"frame"`
-	Cost  float64                   `json:"cost"`
-}
-
-func makeFrameCfg(arm string, pose spatialmath.Pose, cost float64) calOutput {
-	orientationMap := map[string]any{}
-	orientationMap["x"] = pose.Orientation().OrientationVectorDegrees().OX
-	orientationMap["y"] = pose.Orientation().OrientationVectorDegrees().OY
-	orientationMap["z"] = pose.Orientation().OrientationVectorDegrees().OZ
-	orientationMap["th"] = pose.Orientation().OrientationVectorDegrees().Theta
-
-	orientCfg := spatialmath.OrientationConfig{Type: spatialmath.OrientationVectorDegreesType, Value: orientationMap}
-	frame := referenceframe.LinkConfig{Translation: pose.Point(), Orientation: &orientCfg, Parent: arm}
-	out := calOutput{Frame: frame, Cost: cost}
-	return out
-}
-
-// func makeFrameCfg(arm string, pose spatialmath.Pose) *framePb.Frame {
-// 	deg := pose.Orientation().OrientationVectorDegrees()
-// 	tl := framePb.Translation{X: pose.Point().X, Y: pose.Point().Y, Z: pose.Point().Z}
-// 	orient := framePb.Orientation{Type: &framePb.Orientation_VectorDegrees{VectorDegrees: &framePb.Orientation_OrientationVectorDegrees{Theta: deg.Theta, X: deg.OX, Y: deg.OY, Z: deg.OZ}}}
-
-//		return &framePb.Frame{Parent: arm, Translation: &tl, Orientation: &orient}
-//	}
 func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[string]interface{}) (map[string]interface{}, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -327,7 +307,7 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				indexStr, ok := value.(string)
 				// if it wasn't a string or it was't empty, yell at the user
 				if !ok || indexStr != "" {
-					resp["warn"] = fmt.Sprintf("the input should be a positive integer or an empty string")
+					resp["warn"] = "the input should be a positive integer or an empty string"
 				}
 				indexFloat = -1
 			}
@@ -342,7 +322,7 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 			switch {
 			case index < 0:
 				s.positions = append(s.positions, pos)
-				resp[saveAndUpdateKey] = fmt.Sprintf("joint position %v added to config", len(s.cfg.JointPositions)-1)
+				resp[saveAndUpdateKey] = fmt.Sprintf("joint position %v added to config", len(s.positions)-1)
 
 			case index > len(s.positions):
 				return nil, fmt.Errorf("index %v is out of range, only %v positions are set", reflect.TypeOf(value), len(s.positions))
@@ -570,4 +550,17 @@ func (s *frameCalibrationArmCamera) callMove(ctx context.Context, pose spatialma
 		return err
 	}
 	return nil
+}
+
+func makeFrameCfg(arm string, pose spatialmath.Pose, cost float64) calOutput {
+	orientationMap := map[string]any{}
+	orientationMap["x"] = pose.Orientation().OrientationVectorDegrees().OX
+	orientationMap["y"] = pose.Orientation().OrientationVectorDegrees().OY
+	orientationMap["z"] = pose.Orientation().OrientationVectorDegrees().OZ
+	orientationMap["th"] = pose.Orientation().OrientationVectorDegrees().Theta
+
+	orientCfg := spatialmath.OrientationConfig{Type: spatialmath.OrientationVectorDegreesType, Value: orientationMap}
+	frame := referenceframe.LinkConfig{Translation: pose.Point(), Orientation: &orientCfg, Parent: arm}
+	out := calOutput{Frame: frame, Cost: cost}
+	return out
 }
