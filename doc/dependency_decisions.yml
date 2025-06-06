@@ -166,7 +166,7 @@
   - :who:
     :why:
     :versions: []
-    :when: 2025-04-10 15:21:04.946556000 Z
+    :when: 2025-04-10 15:21:04.946556000 Zs
 - - :license
   - github.com/yosuke-furukawa/json5
   - Simplified BSD
@@ -175,4 +175,3 @@
     :license_links: https://github.com/yosuke-furukawa/json5/blob/cf7bb3f354ffe5d5ad4c9b714895eab7e0498b5f/LICENSE.md
     :versions: []
     :when: 2025-04-11 20:04:09.564107000 Z
-  
