@@ -45,7 +45,6 @@ const (
 	getPositionsKey           = "getCalibrationPositions"
 	deletePosKey              = "deleteCalibrationPosition" // takes an index
 	clearCalibrationPositions = "clearCalibrationPositions"
-	updateConfigKey           = "updateCalibrationConfig"
 	vizAddress                = "http://localhost:5173/"
 )
 
@@ -288,13 +287,11 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 					s.logger.Error(err)
 					return nil, err
 				}
-
 				output[intNumAttempts-i-1] = makeFrameCfg(s.cfg.Arm, pose, cost)
 				s.guess = pose
 			}
 			resp["note - calibration"] = "use the frame with the lowest cost score. For more reliable results, increase the number of attempts"
 			resp[calibrateKey] = output
-
 		case vizKey:
 			err := s.viz(ctx)
 			if err != nil {
@@ -353,12 +350,10 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				s.positions[index] = pos
 				resp[saveAndUpdateKey] = fmt.Sprintf("joint position %v updated in config", index)
 			}
-
 			if err := s.updateCfg(ctx); err != nil {
 				s.logger.Error(err)
 				return nil, err
 			}
-
 			resp["note - config update"] = "config changes may take a few seconds to update"
 		case moveArmIndexKey:
 			indexFloat, ok := value.(float64)
@@ -415,19 +410,11 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				outputs = append(outputs, out)
 			}
 			resp[getPositionsKey] = outputs
-
 		case clearCalibrationPositions:
 			s.positions = [][]referenceframe.Input{}
 			resp[clearCalibrationPositions] = "positions removed"
-		case updateConfigKey:
-			if err := s.updateCfg(ctx); err != nil {
-				s.logger.Error(err)
-				return nil, err
-			}
-			resp[updateConfigKey] = "config updated"
-			resp["note - config update"] = "config changes may take a few seconds to update"
-
 		default:
+			resp[key] = "unsupported key"
 		}
 
 	}
