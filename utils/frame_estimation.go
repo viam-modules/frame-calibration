@@ -315,7 +315,7 @@ IK:
 		return nil, errors.New("no solutions found")
 	}
 
-	keys := make([]float64, 0)
+	keys := make([]float64, 0, len(solutions))
 	for k := range solutions {
 		keys = append(keys, k)
 	}
