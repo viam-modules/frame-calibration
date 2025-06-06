@@ -41,8 +41,7 @@ const (
 	moveArmKey                = "moveArm"
 	moveArmIndexKey           = "moveArmToPosition"
 	checkTagsKey              = "checkTags"
-	savePosKey                = "saveCalibrationPosition"
-	saveAndUpdateKey          = "saveAndUpdatePosition"
+	saveAndUpdateKey          = "saveCalibrationPosition"
 	getPositionsKey           = "getCalibrationPositions"
 	deletePosKey              = "deleteCalibrationPosition" // takes an index
 	clearCalibrationPositions = "clearCalibrationPositions"
@@ -230,6 +229,31 @@ func (s *frameCalibrationArmCamera) Name() resource.Name {
 	return s.name
 }
 
+type calOutput struct {
+	Frame referenceframe.LinkConfig `json:"frame"`
+	Cost  float64                   `json:"cost"`
+}
+
+func makeFrameCfg(arm string, pose spatialmath.Pose, cost float64) calOutput {
+	orientationMap := map[string]any{}
+	orientationMap["x"] = pose.Orientation().OrientationVectorDegrees().OX
+	orientationMap["y"] = pose.Orientation().OrientationVectorDegrees().OY
+	orientationMap["z"] = pose.Orientation().OrientationVectorDegrees().OZ
+	orientationMap["th"] = pose.Orientation().OrientationVectorDegrees().Theta
+
+	orientCfg := spatialmath.OrientationConfig{Type: spatialmath.OrientationVectorDegreesType, Value: orientationMap}
+	frame := referenceframe.LinkConfig{Translation: pose.Point(), Orientation: &orientCfg, Parent: arm}
+	out := calOutput{Frame: frame, Cost: cost}
+	return out
+}
+
+// func makeFrameCfg(arm string, pose spatialmath.Pose) *framePb.Frame {
+// 	deg := pose.Orientation().OrientationVectorDegrees()
+// 	tl := framePb.Translation{X: pose.Point().X, Y: pose.Point().Y, Z: pose.Point().Z}
+// 	orient := framePb.Orientation{Type: &framePb.Orientation_VectorDegrees{VectorDegrees: &framePb.Orientation_OrientationVectorDegrees{Theta: deg.Theta, X: deg.OX, Y: deg.OY, Z: deg.OZ}}}
+
+//		return &framePb.Frame{Parent: arm, Translation: &tl, Orientation: &orient}
+//	}
 func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[string]interface{}) (map[string]interface{}, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -243,24 +267,38 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				strAttempts, ok := value.(string)
 				// if it wasn't a string or it was't empty, yell at the user
 				if !ok || strAttempts != "" {
-					resp["warn"] = fmt.Sprintf("the input should be a positive integer or an empty string")
+					resp["warn"] = "the input should be a positive integer or an empty string"
 				}
 				numAttempts = 1
 			}
+			if numAttempts < 1 {
+				resp["warn"] = "number of attempts should be one or greater"
+				numAttempts = 1
+			}
+			intNumAttempts := int(numAttempts)
 
-			for i := range int(numAttempts) {
-				pose, err := s.calibrate(ctx)
+			output := make([]calOutput, 0, intNumAttempts)
+			for range intNumAttempts {
+				output = append(output, calOutput{})
+			}
+
+			for i := range intNumAttempts {
+				pose, cost, err := s.calibrate(ctx)
 				if err != nil {
+					s.logger.Error(err)
 					return nil, err
 				}
-				respNum := fmt.Sprintf("calibration pose %v", i)
-				resp[respNum] = pose
+
+				output[intNumAttempts-i-1] = makeFrameCfg(s.cfg.Arm, pose, cost)
 				s.guess = pose
 			}
+			resp["note - calibration"] = "use the frame with the lowest cost score. For more reliable results, increase the number of attempts"
+			resp[calibrateKey] = output
 
 		case vizKey:
 			err := s.viz(ctx)
 			if err != nil {
+				s.logger.Error(err)
 				return nil, fmt.Errorf("check that the viz server is running on your machine: %s", err.Error())
 			}
 			resp[vizKey] = "http://localhost:5173/"
@@ -273,35 +311,54 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 			seconds := int(secondsFloat)
 			numTags, err := s.moveArm(ctx, seconds)
 			if err != nil {
+				s.logger.Error(err)
 				return nil, err
 			}
 			resp[moveArmKey] = "success"
 			resp["tags seen"] = numTags
-		case savePosKey:
-			pos, err := s.arm.JointPositions(ctx, nil)
-			if err != nil {
-				return nil, err
-			}
-			s.positions = append(s.positions, pos)
-			resp[savePosKey] = "joint position saved"
 		case checkTagsKey:
 			tags, err := calutils.DiscoverTags(ctx, s.poseTracker)
 			if err != nil {
+				s.logger.Error(err)
 				return nil, err
 			}
 			resp[checkTagsKey] = fmt.Sprintf("number of tags seen: %v", len(tags))
 		case saveAndUpdateKey:
+			indexFloat, ok := value.(float64)
+			if !ok {
+				// check if it was a string
+				indexStr, ok := value.(string)
+				// if it wasn't a string or it was't empty, yell at the user
+				if !ok || indexStr != "" {
+					resp["warn"] = fmt.Sprintf("the input should be a positive integer or an empty string")
+				}
+				indexFloat = -1
+			}
+			index := int(indexFloat)
+
 			pos, err := s.arm.JointPositions(ctx, nil)
 			if err != nil {
+				s.logger.Error(err)
 				return nil, err
 			}
-			s.positions = append(s.positions, pos)
+
+			switch {
+			case index < 0:
+				s.positions = append(s.positions, pos)
+				resp[saveAndUpdateKey] = fmt.Sprintf("joint position %v added to config", len(s.cfg.JointPositions)-1)
+
+			case index > len(s.positions):
+				return nil, fmt.Errorf("index %v is out of range, only %v positions are set", reflect.TypeOf(value), len(s.positions))
+			default:
+				s.positions[index] = pos
+				resp[saveAndUpdateKey] = fmt.Sprintf("joint position %v updated in config", index)
+			}
 
 			if err := s.updateCfg(ctx); err != nil {
+				s.logger.Error(err)
 				return nil, err
 			}
 
-			resp[saveAndUpdateKey] = fmt.Sprintf("joint position %v added to config", len(s.cfg.JointPositions))
 			resp["note - config update"] = "config changes may take a few seconds to update"
 		case moveArmIndexKey:
 			indexFloat, ok := value.(float64)
@@ -314,15 +371,18 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 			}
 			goalPose, err := s.arm.ModelFrame().Transform(s.positions[index])
 			if err != nil {
+				s.logger.Error(err)
 				return nil, err
 			}
 			if err := s.callMove(ctx, goalPose); err != nil {
+				s.logger.Error(err)
 				return nil, err
 			}
 			time.Sleep(1 * time.Second)
 			// discover tags for pose estimation
 			tags, err := calutils.DiscoverTags(ctx, s.poseTracker)
 			if err != nil {
+				s.logger.Error(err)
 				return nil, err
 			}
 			resp[moveArmIndexKey] = len(tags)
@@ -348,6 +408,7 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 			for index, pos := range s.positions {
 				jointFloats, err := referenceframe.JointPositionsFromInputs(s.arm.ModelFrame(), pos)
 				if err != nil {
+					s.logger.Error(err)
 					return nil, err
 				}
 				out := positionOutput{Index: index, Position: jointFloats.Values}
@@ -360,6 +421,7 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 			resp[clearCalibrationPositions] = "positions removed"
 		case updateConfigKey:
 			if err := s.updateCfg(ctx); err != nil {
+				s.logger.Error(err)
 				return nil, err
 			}
 			resp[updateConfigKey] = "config updated"
@@ -446,27 +508,27 @@ func (s *frameCalibrationArmCamera) viz(ctx context.Context) error {
 	return vizclient.DrawWorldState(wsDrawing, fs, referenceframe.NewZeroInputs(fs))
 }
 
-func (s *frameCalibrationArmCamera) calibrate(ctx context.Context) (spatialmath.Pose, error) {
+func (s *frameCalibrationArmCamera) calibrate(ctx context.Context) (spatialmath.Pose, float64, error) {
 	if len(s.positions) == 0 {
-		return nil, errNoPoses
+		return nil, 0, errNoPoses
 	}
 	// get poses
 	poses, err := s.calibrationPoses()
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	// move to initial pose.
 	constraints := motionplan.NewEmptyConstraints()
 	posInF := referenceframe.NewPoseInFrame(referenceframe.World, poses[0])
 	req := motion.MoveReq{ComponentName: s.arm.Name(), Destination: posInF, WorldState: s.ws, Constraints: constraints}
 	if _, err = s.motion.Move(ctx, req); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// discover tags for pose estimation
 	tags, err := calutils.DiscoverTags(ctx, s.poseTracker)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	dataCfg := calutils.DataConfig{DataPath: s.cachedPlanDir, SaveNewData: false, LoadOldDataset: false}
