@@ -43,7 +43,7 @@ const (
 	checkTagsKey              = "checkTags"
 	saveAndUpdateKey          = "saveCalibrationPosition"
 	getPositionsKey           = "getCalibrationPositions"
-	deletePosKey              = "deleteCalibrationPosition" // takes an index
+	deletePosKey              = "deleteCalibrationPosition"
 	clearCalibrationPositions = "clearCalibrationPositions"
 	vizAddress                = "http://localhost:5173/"
 )
