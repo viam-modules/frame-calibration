@@ -58,6 +58,7 @@ func DiscoverTags(ctx context.Context, poseTracker posetracker.PoseTracker) ([]s
 
 // EstimateFramePose estimates the frame of a camera with respect to an arm using an arm's MoveToJointPositions.
 // this method can be used if there are no obstacles that may cause a collision with the arm.
+// returns the pose and the optimizer's minimum cost value for that pose.
 func EstimateFramePose(
 	ctx context.Context,
 	req ReqFramePoseWithoutMotion,
@@ -98,6 +99,8 @@ func EstimateFramePose(
 	return p, sol[0].cost, nil
 }
 
+// Estimate the pose of a camera mounted on an arm using the motion service to move the arm.
+// returns the pose and the optimizer's minimum cost value for that pose.
 func EstimateFramePoseWithMotion(
 	ctx context.Context,
 	req ReqFramePoseWithMotion,
@@ -346,7 +349,9 @@ func getTagPoses(
 		if err != nil {
 			return nil, nil, err
 		}
-		time.Sleep(time.Second)
+		if !utils.SelectContextOrWait(ctx, 1*time.Second) {
+			return nil, nil, ctx.Err()
+		}
 		j, err := averageJointPosition(ctx, a, 100)
 		if err != nil {
 			return nil, nil, err
@@ -379,7 +384,9 @@ func getTagPosesWithMotion(
 			return nil, nil, err
 		}
 
-		time.Sleep(time.Second)
+		if !utils.SelectContextOrWait(ctx, 1*time.Second) {
+			return nil, nil, ctx.Err()
+		}
 		j, err := averageJointPosition(ctx, req.Arm, 100)
 		if err != nil {
 			return nil, nil, err

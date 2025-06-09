@@ -22,7 +22,8 @@ import (
 	"go.viam.com/rdk/services/generic"
 	"go.viam.com/rdk/services/motion"
 	"go.viam.com/rdk/spatialmath"
-	"go.viam.com/rdk/utils"
+	rdkutils "go.viam.com/rdk/utils"
+	"go.viam.com/utils"
 
 	"github.com/erh/vmodutils"
 	vizclient "github.com/viam-labs/motion-tools/client/client"
@@ -65,8 +66,8 @@ type Config struct {
 	// TODO: add geometries
 }
 
-func (cfg *Config) getConvertedAttributes() utils.AttributeMap {
-	attrMap := utils.AttributeMap{
+func (cfg *Config) getConvertedAttributes() rdkutils.AttributeMap {
+	attrMap := rdkutils.AttributeMap{
 		"arm":             cfg.Arm,
 		"tracker":         cfg.PoseTracker,
 		"joint_positions": cfg.JointPositions,
@@ -278,7 +279,7 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				s.logger.Error(err)
 				return nil, fmt.Errorf("check that the viz server is running on your machine: %s", err.Error())
 			}
-			resp[vizKey] = "http://localhost:5173/"
+			resp[vizKey] = vizAddress
 			resp["note - viz"] = "you may need to rerun the command if the page is empty"
 		case moveArmKey:
 			secondsFloat, ok := value.(float64)
@@ -324,7 +325,7 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				s.positions = append(s.positions, pos)
 				resp[saveAndUpdateKey] = fmt.Sprintf("joint position %v added to config", len(s.positions)-1)
 
-			case index > len(s.positions):
+			case index >= len(s.positions):
 				return nil, fmt.Errorf("index %v is out of range, only %v positions are set", reflect.TypeOf(value), len(s.positions))
 			default:
 				s.positions[index] = pos
@@ -341,7 +342,7 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				return nil, fmt.Errorf("removing position, expected int got %v", reflect.TypeOf(value))
 			}
 			index := int(indexFloat)
-			if index > len(s.positions) {
+			if index >= len(s.positions) {
 				return nil, fmt.Errorf("index %v is out of range, only %v positions are set", reflect.TypeOf(value), len(s.positions))
 			}
 			goalPose, err := s.arm.ModelFrame().Transform(s.positions[index])
@@ -353,7 +354,10 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				s.logger.Error(err)
 				return nil, err
 			}
-			time.Sleep(1 * time.Second)
+			// sleep to give time to check camera
+			if !utils.SelectContextOrWait(ctx, 1*time.Second) {
+				return nil, ctx.Err()
+			}
 			// discover tags for pose estimation
 			tags, err := calutils.DiscoverTags(ctx, s.poseTracker)
 			if err != nil {
@@ -393,6 +397,11 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 		case clearCalibrationPositions:
 			s.positions = [][]referenceframe.Input{}
 			resp[clearCalibrationPositions] = "positions removed"
+			if err := s.updateCfg(ctx); err != nil {
+				s.logger.Error(err)
+				return nil, err
+			}
+
 		default:
 			resp[key] = "unsupported key"
 		}
@@ -527,7 +536,9 @@ func (s *frameCalibrationArmCamera) moveArm(ctx context.Context, delay int) ([]i
 			return nil, err
 		}
 		// sleep to give time to check camera
-		time.Sleep(time.Duration(delay) * time.Second)
+		if !utils.SelectContextOrWait(ctx, time.Duration(delay)*time.Second) {
+			return nil, ctx.Err()
+		}
 		tags, err := calutils.DiscoverTags(ctx, s.poseTracker)
 		if err != nil {
 			return nil, err
