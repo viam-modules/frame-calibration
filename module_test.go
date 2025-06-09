@@ -114,7 +114,7 @@ func TestDeletePositionFromArr(t *testing.T) {
 		newPositions, err := deletePositionFromArr(positions, index)
 		test.That(t, err, test.ShouldBeNil)
 		test.That(t, len(newPositions), test.ShouldEqual, len(positions)-1)
-		test.That(t, newPositions[index], test.ShouldEqual, positions[index+1])
+		test.That(t, newPositions[index], test.ShouldResemble, positions[index+1])
 	})
 	t.Run("index out of range", func(t *testing.T) {
 		index := 10
