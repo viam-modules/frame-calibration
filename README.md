@@ -7,6 +7,7 @@ This module is used for calibrating frames of cameras to be used in the frame sy
 This model is used to determine the frame of a camera mounted on an arm to be consumed by the frame system.
 
 ### Configuration
+
 The following attribute template can be used to configure this model:
 
 ```json
@@ -39,6 +40,10 @@ The following attributes are available for this model:
   ]
 }
 ```
+
+#### Obstacles
+
+Please use the [erh:vmodutils:obstacle](https://app.viam.com/module/erh/vmodutils) model to add obstacles for the arm to plan around.
 
 ### DoCommand
 

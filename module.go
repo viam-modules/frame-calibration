@@ -11,7 +11,6 @@ import (
 
 	calutils "framecalibration/utils"
 
-	"github.com/golang/geo/r3"
 	armPb "go.viam.com/api/component/arm/v1"
 	"go.viam.com/rdk/components/arm"
 	"go.viam.com/rdk/components/posetracker"
@@ -26,7 +25,6 @@ import (
 	"go.viam.com/utils"
 
 	"github.com/erh/vmodutils"
-	vizclient "github.com/viam-labs/motion-tools/client/client"
 )
 
 var (
@@ -37,17 +35,15 @@ var (
 )
 
 const (
-        // check READMe DoCommands or Module docs for a full explanation of what these commands do.
+	// check READMe DoCommands or Module docs for a full explanation of what these commands do.
 	calibrateKey              = "runCalibration"
 	moveArmKey                = "moveArm"
 	moveArmIndexKey           = "moveArmToPosition"
-	checkTagsKey              = "checkTags"
+	numSeenTagsKey            = "checkTags"
 	saveAndUpdateKey          = "saveCalibrationPosition"
 	getPositionsKey           = "getCalibrationPositions"
 	deletePosKey              = "deleteCalibrationPosition"
 	clearCalibrationPositions = "clearCalibrationPositions"
-	vizKey                    = "viz"
-	vizAddress                = "http://localhost:5173/"
 )
 
 func init() {
@@ -64,7 +60,6 @@ type Config struct {
 	// joint positions are the easiest field for a user to access, but we may want to use poses in the config anyways
 	// or we use both with some predefined logic
 	JointPositions [][]float64 `json:"joint_positions"`
-	// TODO: add geometries
 }
 
 func (cfg *Config) getConvertedAttributes() rdkutils.AttributeMap {
@@ -104,11 +99,11 @@ func (cfg *Config) Validate(path string) ([]string, []string, error) {
 type frameCalibrationArmCamera struct {
 	name resource.Name
 
-	logger      logging.Logger
-	cfg         *Config
-	poseTracker posetracker.PoseTracker
-	arm         arm.Arm
-	positions   [][]referenceframe.Input
+	logger        logging.Logger
+	cfg           *Config
+	poseTracker   posetracker.PoseTracker
+	arm           arm.Arm
+	positions     [][]referenceframe.Input
 	guess         spatialmath.Pose
 	motion        motion.Service
 	ws            *referenceframe.WorldState
@@ -202,28 +197,7 @@ func (s *frameCalibrationArmCamera) reconfigureWithConfig(ctx context.Context, d
 		s.positions = append(s.positions, inputs)
 	}
 
-	// obstacle dimensions in mm
-	// hardcoding geometry for testing
-	obstaclePose := spatialmath.NewPose(r3.Vector{0, 0, -300}, &spatialmath.OrientationVectorDegrees{OZ: -1})
-	obstacle, err := spatialmath.NewBox(obstaclePose, r3.Vector{150, 150, 600}, "box1")
-	if err != nil {
-		return err
-	}
-
-	geoms := referenceframe.NewGeometriesInFrame(
-		conf.Arm,
-		[]spatialmath.Geometry{obstacle},
-	)
-	s.obstacles = geoms
-
-	ws, err := referenceframe.NewWorldState(
-		[]*referenceframe.GeometriesInFrame{geoms},
-		[]*referenceframe.LinkInFrame{},
-	)
-	if err != nil {
-		return err
-	}
-	s.ws = ws
+	s.ws = referenceframe.NewEmptyWorldState()
 
 	s.cfg = conf
 
@@ -245,7 +219,7 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 			if !ok {
 				// check if it was a string
 				strAttempts, ok := value.(string)
-				// if it wasn't a string or it was't empty, yell at the user
+				// if it wasn't a number or an empty string, yell at the user
 				if !ok || strAttempts != "" {
 					resp["warn"] = "the input should be a positive integer or an empty string"
 				}
@@ -273,14 +247,6 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 			}
 			resp["note - calibration"] = "use the frame with the lowest cost score. For more reliable results, increase the number of attempts"
 			resp[calibrateKey] = output
-		case vizKey:
-			err := s.viz(ctx)
-			if err != nil {
-				s.logger.Error(err)
-				return nil, fmt.Errorf("check that the viz server is running on your machine: %s", err.Error())
-			}
-			resp[vizKey] = vizAddress
-			resp["note - viz"] = "you may need to rerun the command if the page is empty"
 		case moveArmKey:
 			secondsFloat, ok := value.(float64)
 			if !ok {
@@ -300,13 +266,13 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				s.logger.Error(err)
 				return nil, err
 			}
-			resp[checkTagsKey] = fmt.Sprintf("number of tags seen: %v", len(tags))
+			resp[numSeenTagsKey] = fmt.Sprintf("number of tags seen: %v", len(tags))
 		case saveAndUpdateKey:
 			indexFloat, ok := value.(float64)
 			if !ok {
 				// check if it was a string
 				indexStr, ok := value.(string)
-				// if it wasn't a string or it was't empty, yell at the user
+				// if it wasn't a number or an empty string, yell at the user
 				if !ok || indexStr != "" {
 					resp["warn"] = "the input should be a positive integer or an empty string"
 				}
@@ -405,7 +371,6 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 		default:
 			resp[key] = "unsupported key"
 		}
-
 	}
 
 	if len(resp) == 0 {
@@ -452,36 +417,6 @@ func (s *frameCalibrationArmCamera) calibrationPoses() ([]spatialmath.Pose, erro
 		poses = append(poses, newPose)
 	}
 	return poses, nil
-}
-
-func (s *frameCalibrationArmCamera) viz(ctx context.Context) error {
-	armGeos, err := s.arm.Geometries(ctx, nil)
-	if err != nil {
-		return err
-	}
-	armGeomsInF := referenceframe.NewGeometriesInFrame(
-		referenceframe.World,
-		armGeos,
-	)
-
-	wsDrawing, err := referenceframe.NewWorldState(
-		[]*referenceframe.GeometriesInFrame{s.obstacles, armGeomsInF},
-		[]*referenceframe.LinkInFrame{},
-	)
-	if err != nil {
-		return err
-	}
-	fs := referenceframe.NewEmptyFrameSystem("blah")
-	frame0 := referenceframe.NewZeroStaticFrame(s.cfg.Arm)
-	err = fs.AddFrame(frame0, fs.World())
-	if err != nil {
-		return err
-	}
-	if err := vizclient.RemoveAllSpatialObjects(); err != nil {
-		return err
-	}
-
-	return vizclient.DrawWorldState(wsDrawing, fs, referenceframe.NewZeroInputs(fs))
 }
 
 func (s *frameCalibrationArmCamera) calibrate(ctx context.Context) (spatialmath.Pose, float64, error) {
