@@ -338,10 +338,11 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				return nil, fmt.Errorf("removing position, expected int got %v", reflect.TypeOf(value))
 			}
 			index := int(indexFloat)
-			if index > len(s.positions) {
-				return nil, fmt.Errorf("index %v is out of range, only %v positions are set", reflect.TypeOf(value), len(s.positions))
+			pos, err := deletePositionFromArr(s.positions, index)
+			if err != nil {
+				return nil, err
 			}
-			s.positions = deletePositionFromArr(s.positions, index)
+			s.positions = pos
 			resp[deletePosKey] = "position deleted"
 			// fallthrough to print updated positions
 			fallthrough
@@ -379,11 +380,14 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 	return resp, nil
 }
 
-func deletePositionFromArr(arr [][]referenceframe.Input, index int) [][]referenceframe.Input {
+func deletePositionFromArr(arr [][]referenceframe.Input, index int) ([][]referenceframe.Input, error) {
+	if index >= len(arr) {
+		return nil, fmt.Errorf("index %v out of range %v", index, len(arr))
+	}
 	newArr := make([][]referenceframe.Input, 0)
 	newArr = append(newArr, arr[:index]...)
 	newArr = append(newArr, arr[index+1:]...)
-	return newArr
+	return newArr, nil
 }
 func (s *frameCalibrationArmCamera) updateCfg(ctx context.Context) error {
 	// ensure cfg matches the current set of positions

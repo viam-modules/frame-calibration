@@ -2,6 +2,7 @@ package framecalibration
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"go.viam.com/test"
@@ -97,4 +98,29 @@ func TestValidate(t *testing.T) {
 		test.That(t, deps, test.ShouldResemble, []string{armName, ptName, resource.NewName(motion.API, resource.DefaultServiceName).String()})
 		test.That(t, optDeps, test.ShouldBeEmpty)
 	})
+}
+
+func TestDeletePositionFromArr(t *testing.T) {
+	positions := [][]referenceframe.Input{{{Value: 0}},
+		{{Value: 1}},
+		{{Value: 2}},
+		{{Value: 3}},
+		{{Value: 4}},
+		{{Value: 5}},
+		{{Value: 6}},
+	}
+	t.Run("delete a position", func(t *testing.T) {
+		index := 2
+		newPositions, err := deletePositionFromArr(positions, index)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, len(newPositions), test.ShouldEqual, len(positions)-1)
+		test.That(t, newPositions[index], test.ShouldEqual, positions[index+1])
+	})
+	t.Run("index out of range", func(t *testing.T) {
+		index := 10
+		_, err := deletePositionFromArr(positions, index)
+		test.That(t, err, test.ShouldBeError, fmt.Errorf("index %v out of range %v", index, len(positions)))
+
+	})
+
 }
