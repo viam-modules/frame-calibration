@@ -37,7 +37,7 @@ var (
 )
 
 const (
-	vizKey                    = "viz"
+        // check READMe DoCommands or Module docs for a full explanation of what these commands do.
 	calibrateKey              = "runCalibration"
 	moveArmKey                = "moveArm"
 	moveArmIndexKey           = "moveArmToPosition"
@@ -46,6 +46,7 @@ const (
 	getPositionsKey           = "getCalibrationPositions"
 	deletePosKey              = "deleteCalibrationPosition"
 	clearCalibrationPositions = "clearCalibrationPositions"
+	vizKey                    = "viz"
 	vizAddress                = "http://localhost:5173/"
 )
 
@@ -108,7 +109,6 @@ type frameCalibrationArmCamera struct {
 	poseTracker posetracker.PoseTracker
 	arm         arm.Arm
 	positions   [][]referenceframe.Input
-	// poses         []spatialmath.Pose
 	guess         spatialmath.Pose
 	motion        motion.Service
 	ws            *referenceframe.WorldState
@@ -252,7 +252,7 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				numAttempts = 1
 			}
 			if numAttempts < 1 {
-				resp["warn"] = "number of attempts should be one or greater"
+				resp["warn"] = "number of attempts should be one or greater setting the number of calbration attempts to 1"
 				numAttempts = 1
 			}
 			intNumAttempts := int(numAttempts)
@@ -294,7 +294,7 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 			}
 			resp[moveArmKey] = "success"
 			resp["tags seen"] = numTags
-		case checkTagsKey:
+		case numSeenTagsKey:
 			tags, err := calutils.DiscoverTags(ctx, s.poseTracker)
 			if err != nil {
 				s.logger.Error(err)
