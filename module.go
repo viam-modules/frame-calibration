@@ -389,6 +389,7 @@ func deletePositionFromArr(arr [][]referenceframe.Input, index int) ([][]referen
 	newArr = append(newArr, arr[index+1:]...)
 	return newArr, nil
 }
+
 func (s *frameCalibrationArmCamera) updateCfg(ctx context.Context) error {
 	// ensure cfg matches the current set of positions
 	s.cfg.JointPositions = make([][]float64, 0, len(s.positions))
