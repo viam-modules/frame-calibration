@@ -3,14 +3,12 @@ package framecalibration
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"sync"
 	"time"
 
 	calutils "framecalibration/utils"
 
-	"github.com/golang/geo/r3"
 	armPb "go.viam.com/api/component/arm/v1"
 	"go.viam.com/rdk/components/arm"
 	"go.viam.com/rdk/components/posetracker"
@@ -21,8 +19,6 @@ import (
 	"go.viam.com/rdk/services/generic"
 	"go.viam.com/rdk/services/motion"
 	"go.viam.com/rdk/spatialmath"
-
-	vizclient "github.com/viam-labs/motion-tools/client/client"
 )
 
 var (
@@ -33,10 +29,8 @@ var (
 )
 
 const (
-	vizKey       = "viz"
 	calibrateKey = "runCalibration"
 	moveArmKey   = "moveArm"
-	vizAddress   = "http://localhost:5173/"
 )
 
 func init() {
@@ -53,7 +47,6 @@ type Config struct {
 	// joint positions are the easiest field for a user to access, but we may want to use poses in the config anyways
 	// or we use both with some predefined logic
 	JointPositions [][]float64 `json:"joint_positions"`
-	// TODO: add geometries
 }
 
 // Validate ensures all parts of the config are valid and important fields exist.
@@ -195,28 +188,8 @@ func (s *frameCalibrationArmCamera) reconfigureWithConfig(ctx context.Context, d
 		}
 		s.poses = append(s.poses, newPose)
 	}
-	// obstacle dimensions in mm
-	// hardcoding geometry for testing
-	obstaclePose := spatialmath.NewPose(r3.Vector{0, 0, -300}, &spatialmath.OrientationVectorDegrees{OZ: -1})
-	obstacle, err := spatialmath.NewBox(obstaclePose, r3.Vector{100, 100, 600}, "box1")
-	if err != nil {
-		return err
-	}
 
-	geoms := referenceframe.NewGeometriesInFrame(
-		conf.Arm,
-		[]spatialmath.Geometry{obstacle},
-	)
-	s.obstacles = geoms
-
-	ws, err := referenceframe.NewWorldState(
-		[]*referenceframe.GeometriesInFrame{geoms},
-		[]*referenceframe.LinkInFrame{},
-	)
-	if err != nil {
-		return err
-	}
-	s.ws = ws
+	s.ws = referenceframe.NewEmptyWorldState()
 
 	s.cfg = conf
 
@@ -239,14 +212,6 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 		resp["guessed frame"] = pose
 		s.guess = pose
 	}
-	if _, ok := cmd[vizKey]; ok {
-		err := s.viz(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("check that the viz server is running on your machine: %s", err.Error())
-		}
-		resp[vizKey] = vizAddress
-		resp["note"] = "you may need to rerun the command if the page is empty"
-	}
 	if _, ok := cmd[moveArmKey]; ok {
 		err := s.moveArm(ctx)
 		if err != nil {
@@ -266,36 +231,6 @@ func (s *frameCalibrationArmCamera) Close(context.Context) error {
 	// Put close code here
 	s.cancelFunc()
 	return nil
-}
-
-func (s *frameCalibrationArmCamera) viz(ctx context.Context) error {
-	armGeos, err := s.arm.Geometries(ctx, nil)
-	if err != nil {
-		return err
-	}
-	armGeomsInF := referenceframe.NewGeometriesInFrame(
-		referenceframe.World,
-		armGeos,
-	)
-
-	wsDrawing, err := referenceframe.NewWorldState(
-		[]*referenceframe.GeometriesInFrame{s.obstacles, armGeomsInF},
-		[]*referenceframe.LinkInFrame{},
-	)
-	if err != nil {
-		return err
-	}
-	fs := referenceframe.NewEmptyFrameSystem("blah")
-	frame0 := referenceframe.NewZeroStaticFrame(s.cfg.Arm)
-	err = fs.AddFrame(frame0, fs.World())
-	if err != nil {
-		return err
-	}
-	if err := vizclient.RemoveAllSpatialObjects(); err != nil {
-		return err
-	}
-
-	return vizclient.DrawWorldState(wsDrawing, fs, referenceframe.NewZeroInputs(fs))
 }
 
 func (s *frameCalibrationArmCamera) calibrate(ctx context.Context) (spatialmath.Pose, error) {

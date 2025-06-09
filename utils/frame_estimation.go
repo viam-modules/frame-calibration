@@ -50,7 +50,7 @@ func DiscoverTags(ctx context.Context, poseTracker posetracker.PoseTracker) ([]s
 		return nil, err
 	}
 	tags := []string{}
-	for key, _ := range poses {
+	for key := range poses {
 		tags = append(tags, key)
 	}
 	return tags, nil
