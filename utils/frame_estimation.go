@@ -58,27 +58,28 @@ func DiscoverTags(ctx context.Context, poseTracker posetracker.PoseTracker) ([]s
 
 // EstimateFramePose estimates the frame of a camera with respect to an arm using an arm's MoveToJointPositions.
 // this method can be used if there are no obstacles that may cause a collision with the arm.
+// returns the pose and the optimizer's minimum cost value for that pose.
 func EstimateFramePose(
 	ctx context.Context,
 	req ReqFramePoseWithoutMotion,
 	dataCfg DataConfig,
 	logger logging.Logger,
-) (spatialmath.Pose, error) {
+) (spatialmath.Pose, float64, error) {
 	var tagPoses []referenceframe.FrameSystemPoses
 	calibrationPositions := req.CalibrationJointPositions
 	var err error
 
 	if !dataCfg.LoadOldDataset {
 		if tagPoses, _, err = getTagPoses(ctx, req.Arm, req.PoseTracker, calibrationPositions); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 
 		if err := dataCfg.saveDataToFile(tagPoses, calibrationPositions); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	} else {
 		if tagPoses, calibrationPositions, err = dataCfg.loadDataFromFiles(); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	}
 
@@ -86,38 +87,40 @@ func EstimateFramePose(
 
 	sol, err := minimize(ctx, req.Arm.ModelFrame(), tagPoses, req.ExpectedTags, calibrationPositions, req.SeedPose, logger)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	logger.Debug("Guess:", req.SeedPose.Point(), req.SeedPose.Orientation().Quaternion())
 	if len(sol[0].q) < dof6 {
-		return nil, errors.New("invalid pose for solution")
+		return nil, 0, errors.New("invalid pose for solution")
 	}
 	p := floatsToPose(sol[0].q)
-	logger.Info(p.Point(), p.Orientation().Quaternion(), sol[0].cost)
+	logger.Info("Optimization Guess: ", p.Point(), p.Orientation().Quaternion(), sol[0].cost)
 	printWorldStatePoses(req.Arm, tagPoses, req.SeedPose, req.ExpectedTags, calibrationPositions, logger)
-	return p, nil
+	return p, sol[0].cost, nil
 }
 
+// Estimate the pose of a camera mounted on an arm using the motion service to move the arm.
+// returns the pose and the optimizer's minimum cost value for that pose.
 func EstimateFramePoseWithMotion(
 	ctx context.Context,
 	req ReqFramePoseWithMotion,
 	dataCfg DataConfig,
 	logger logging.Logger,
-) (spatialmath.Pose, error) {
+) (spatialmath.Pose, float64, error) {
 	var tagPoses []referenceframe.FrameSystemPoses
 	var jointPositions [][]referenceframe.Input
 	var err error
 	// the user wants to collect a new set of data from the arm
 	if !dataCfg.LoadOldDataset {
 		if tagPoses, jointPositions, err = getTagPosesWithMotion(ctx, req, logger); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		if err := dataCfg.saveDataToFile(tagPoses, jointPositions); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	} else {
 		if tagPoses, jointPositions, err = dataCfg.loadDataFromFiles(); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	}
 
@@ -125,16 +128,16 @@ func EstimateFramePoseWithMotion(
 
 	sol, err := minimize(ctx, req.Arm.ModelFrame(), tagPoses, req.ExpectedTags, jointPositions, req.SeedPose, logger)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	logger.Debug("Initial Guess: ", req.SeedPose.Point(), req.SeedPose.Orientation().Quaternion())
 	if len(sol[0].q) < dof6 {
-		return nil, fmt.Errorf("invalid pose for solution: %v", sol[0].q)
+		return nil, 0, fmt.Errorf("invalid pose for solution: %v", sol[0].q)
 	}
 	p := floatsToPose(sol[0].q)
 	logger.Info("Optimization Guess: ", p.Point(), p.Orientation().Quaternion(), sol[0].cost)
 	printWorldStatePoses(req.Arm, tagPoses, p, req.ExpectedTags, jointPositions, logger)
-	return p, nil
+	return p, sol[0].cost, nil
 }
 
 // ReqFramePoseWithMotion is the request to determine a camera's frame position using a motion service on a viam-server.
@@ -324,10 +327,10 @@ IK:
 	orderedSolutions := make([]basicNode, 0)
 	for _, key := range keys {
 		solution := solutions[key]
-		// if a solution is empty, set it to a high cost
 		if len(solution) == 0 {
-			key = math.MaxFloat64
+			continue
 		}
+
 		orderedSolutions = append(orderedSolutions, basicNode{q: solution, cost: key})
 	}
 	return orderedSolutions, nil
@@ -346,7 +349,9 @@ func getTagPoses(
 		if err != nil {
 			return nil, nil, err
 		}
-		time.Sleep(time.Second)
+		if !utils.SelectContextOrWait(ctx, 1*time.Second) {
+			return nil, nil, ctx.Err()
+		}
 		j, err := averageJointPosition(ctx, a, 100)
 		if err != nil {
 			return nil, nil, err
@@ -379,7 +384,9 @@ func getTagPosesWithMotion(
 			return nil, nil, err
 		}
 
-		time.Sleep(time.Second)
+		if !utils.SelectContextOrWait(ctx, 1*time.Second) {
+			return nil, nil, ctx.Err()
+		}
 		j, err := averageJointPosition(ctx, req.Arm, 100)
 		if err != nil {
 			return nil, nil, err

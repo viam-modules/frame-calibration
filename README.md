@@ -47,12 +47,82 @@ Please use the [erh:vmodutils:obstacle](https://app.viam.com/module/erh/vmodutil
 
 ### DoCommand
 
-#### moveArm DoCommand
+#### runCalibration DoCommand
 
-This command will move the arm through any currently defined positions. Calibration will not be performed.
+`runCalibration` will run calibration using the currently defined positions, running calibration the specified amount of times. Returns the calibrated frame and associated cost from the optimization.
 
 ```json
 {
-  "moveArm": ""
+  "runCalibration": <int>
+}
+```
+
+#### moveArm DoCommand
+
+`moveArm` will move the arm through any currently defined positions and takes the time delay between moves as an input. Calibration will not be performed, so this is useful to quickly validate all arm positions can see the expected number of tags.
+
+```json
+{
+  "moveArm": <int>
+}
+```
+
+#### getCalibrationPositions DoCommand
+
+`getCalibrationPositions` will return the last saved list of calibration positions.
+
+```json
+{
+  "getCalibrationPositions": ""
+}
+```
+
+#### moveArmToPosition DoCommand
+
+`moveArmToPosition` will move the arm to the specified position and return the number of tags that can be seen.
+
+```json
+{
+  "moveArmToPosition": <int>
+}
+```
+
+#### checkTags DoCommand
+
+`checkTags` will return the number of tags that can be seen by the camera. This is useful when moving the arm to try and find different positions for calibration.
+
+```json
+{
+  "checkTags": ""
+}
+```
+
+#### saveCalibrationPosition DoCommand
+
+`saveCalibrationPosition` will save the current arm position into the list of positions to calibrate with and update the `viam:frame-calibration:arm-camera`'s config. Passing in a positive integer will replace the specified index, while other inputs will append the positions at the end of the list. Use the config history feature if you wish to recover the removed positions.
+
+```json
+{
+  "saveCalibrationPosition": <int> or ""
+}
+```
+
+#### deleteCalibrationPosition DoCommand
+
+`deleteCalibrationPosition` will remove the specified set of joint positions from the `viam:frame-calibration:arm-camera`'s config. Use the config history feature if you wish to recover the removed positions.
+
+```json
+{
+  "deleteCalibrationPosition": <int>
+}
+```
+
+#### clearCalibrationPositions DoCommand
+
+`clearCalibrationPositions` will remove the all joint positions from the `viam:frame-calibration:arm-camera`'s config. Use the config history feature if you wish to recover the removed positions.
+
+```json
+{
+  "clearCalibrationPositions": ""
 }
 ```
