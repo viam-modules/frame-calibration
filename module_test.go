@@ -120,7 +120,5 @@ func TestDeletePositionFromArr(t *testing.T) {
 		index := 10
 		_, err := deletePositionFromArr(positions, index)
 		test.That(t, err, test.ShouldBeError, fmt.Errorf("index %v out of range %v", index, len(positions)))
-
 	})
-
 }
