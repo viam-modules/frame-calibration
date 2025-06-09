@@ -69,7 +69,7 @@ Please use the [erh:vmodutils:obstacle](https://app.viam.com/module/erh/vmodutil
 
 #### getCalibrationPositions DoCommand
 
-`getCalibrationPositions` will return the current list of calibration positions.
+`getCalibrationPositions` will return the last saved list of calibration positions.
 
 ```json
 {
