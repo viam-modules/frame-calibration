@@ -189,14 +189,7 @@ func (s *frameCalibrationArmCamera) reconfigureWithConfig(ctx context.Context, d
 		s.poses = append(s.poses, newPose)
 	}
 
-	ws, err := referenceframe.NewWorldState(
-		[]*referenceframe.GeometriesInFrame{},
-		[]*referenceframe.LinkInFrame{},
-	)
-	if err != nil {
-		return err
-	}
-	s.ws = ws
+	s.ws = referenceframe.NewEmptyWorldState()
 
 	s.cfg = conf
 
