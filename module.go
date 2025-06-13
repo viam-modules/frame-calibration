@@ -200,6 +200,11 @@ func (s *frameCalibrationArmCamera) reconfigureWithConfig(ctx context.Context, d
 
 	s.ws = referenceframe.NewEmptyWorldState()
 
+	s.guess, err = conf.Guess.Pose()
+	if err != nil {
+		return err
+	}
+
 	s.cfg = conf
 
 	return nil
@@ -244,8 +249,10 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 					return nil, err
 				}
 				output[intNumAttempts-i-1] = calOutput{Frame: makeFrameCfg(s.arm.Name().Name, pose), Cost: cost}
+				// store the result to use in the next calibration
 				s.guess = pose
 			}
+			// update the config with the calibration result
 			if err := s.updateCfg(ctx); err != nil {
 				s.logger.Error(err)
 				return nil, err
@@ -455,6 +462,7 @@ func (s *frameCalibrationArmCamera) calibrate(ctx context.Context) (spatialmath.
 	}
 
 	dataCfg := calutils.DataConfig{DataPath: s.cachedPlanDir, SaveNewData: false, LoadOldDataset: false}
+	// run calibration with the current guess as the seed position
 	estimateReq := calutils.ReqFramePoseWithMotion{Arm: s.arm,
 		Motion: s.motion, PoseTracker: s.poseTracker, ExpectedTags: tags, CalibrationPoses: poses, SeedPose: s.guess, WS: s.ws}
 
