@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/golang/geo/r3"
 	"go.viam.com/test"
 
 	"go.viam.com/rdk/components/arm"
@@ -16,6 +17,7 @@ import (
 	"go.viam.com/rdk/resource"
 	"go.viam.com/rdk/services/generic"
 	"go.viam.com/rdk/services/motion"
+	"go.viam.com/rdk/spatialmath"
 	"go.viam.com/rdk/testutils/inject"
 	injectmotion "go.viam.com/rdk/testutils/inject/motion"
 )
@@ -100,6 +102,33 @@ func TestValidate(t *testing.T) {
 	})
 }
 
+func TestGetConvAttr(t *testing.T) {
+	positions := [][]float64{{10}, {20}, {30}, {40}, {50}, {60}}
+	orientation := spatialmath.NewOrientationVectorDegrees()
+	orientation.OX = 1
+	orientation.OY = 2
+	orientation.OZ = 4
+	orientation.Theta = 45
+	point := r3.Vector{X: 100, Y: 200, Z: -300}
+	pose := spatialmath.NewPose(point, orientation)
+	guess := makeFrameCfg(armName, pose)
+	cfg := &Config{Arm: armName, PoseTracker: ptName, JointPositions: positions, Guess: guess}
+	attr := cfg.getConvertedAttributes()
+	armAttr, ok := attr["arm"].(string)
+	test.That(t, ok, test.ShouldBeTrue)
+	test.That(t, armAttr, test.ShouldEqual, armName)
+	ptAttr, ok := attr["tracker"].(string)
+	test.That(t, ok, test.ShouldBeTrue)
+	test.That(t, ptAttr, test.ShouldEqual, ptName)
+	jointsAttr, ok := attr["joint_positions"].([][]float64)
+	test.That(t, ok, test.ShouldBeTrue)
+	test.That(t, len(jointsAttr), test.ShouldEqual, 6)
+	test.That(t, jointsAttr[3][0], test.ShouldEqual, positions[3][0])
+	// the link config is tested in TestMakeFrameCfg
+	_, ok = attr["guess"].(referenceframe.LinkConfig)
+	test.That(t, ok, test.ShouldBeTrue)
+}
+
 func TestDeletePositionFromArr(t *testing.T) {
 	positions := [][]referenceframe.Input{{{Value: 0}},
 		{{Value: 1}},
@@ -121,4 +150,20 @@ func TestDeletePositionFromArr(t *testing.T) {
 		_, err := deletePositionFromArr(positions, index)
 		test.That(t, err, test.ShouldBeError, fmt.Errorf("index %v out of range %v", index, len(positions)))
 	})
+}
+
+func TestMakeFrameCfg(t *testing.T) {
+	orientation := spatialmath.NewOrientationVectorDegrees()
+	orientation.OX = 1
+	orientation.OY = 2
+	orientation.OZ = 4
+	orientation.Theta = 45
+	point := r3.Vector{X: 100.0, Y: 200.0, Z: -300.0}
+	pose := spatialmath.NewPose(point, orientation)
+	cfg := makeFrameCfg(armName, pose)
+	test.That(t, cfg.Parent, test.ShouldEqual, armName)
+	// we want to test that the cfg can be parsed back into a pose by a viam-server
+	newPose, err := cfg.Pose()
+	test.That(t, err, test.ShouldBeNil)
+	test.That(t, spatialmath.PoseAlmostEqual(newPose, pose), test.ShouldBeTrue)
 }

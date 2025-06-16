@@ -59,7 +59,8 @@ type Config struct {
 	PoseTracker string `json:"tracker"`
 	// joint positions are the easiest field for a user to access, but we may want to use poses in the config anyways
 	// or we use both with some predefined logic
-	JointPositions [][]float64 `json:"joint_positions"`
+	JointPositions [][]float64               `json:"joint_positions"`
+	Guess          referenceframe.LinkConfig `json:"guess"`
 }
 
 func (cfg *Config) getConvertedAttributes() rdkutils.AttributeMap {
@@ -67,6 +68,7 @@ func (cfg *Config) getConvertedAttributes() rdkutils.AttributeMap {
 		"arm":             cfg.Arm,
 		"tracker":         cfg.PoseTracker,
 		"joint_positions": cfg.JointPositions,
+		"guess":           cfg.Guess,
 	}
 
 	return attrMap
@@ -107,7 +109,6 @@ type frameCalibrationArmCamera struct {
 	guess         spatialmath.Pose
 	motion        motion.Service
 	ws            *referenceframe.WorldState
-	obstacles     *referenceframe.GeometriesInFrame
 	cachedPlanDir string
 
 	cancelCtx  context.Context
@@ -199,6 +200,11 @@ func (s *frameCalibrationArmCamera) reconfigureWithConfig(ctx context.Context, d
 
 	s.ws = referenceframe.NewEmptyWorldState()
 
+	s.guess, err = conf.Guess.Pose()
+	if err != nil {
+		return err
+	}
+
 	s.cfg = conf
 
 	return nil
@@ -242,8 +248,14 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 					s.logger.Error(err)
 					return nil, err
 				}
-				output[intNumAttempts-i-1] = makeFrameCfg(s.cfg.Arm, pose, cost)
+				output[intNumAttempts-i-1] = calOutput{Frame: makeFrameCfg(s.arm.Name().Name, pose), Cost: cost}
+				// store the result to use in the next calibration
 				s.guess = pose
+			}
+			// update the config with the calibration result
+			if err := s.updateCfg(ctx); err != nil {
+				s.logger.Error(err)
+				return nil, err
 			}
 			resp["note - calibration"] = "use the frame with the lowest cost score. For more reliable results, increase the number of attempts"
 			resp[calibrateKey] = output
@@ -363,6 +375,7 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 			resp[getPositionsKey] = outputs
 		case clearCalibrationPositions:
 			s.positions = [][]referenceframe.Input{}
+			s.guess = spatialmath.NewZeroPose()
 			resp[clearCalibrationPositions] = "positions removed"
 			if err := s.updateCfg(ctx); err != nil {
 				s.logger.Error(err)
@@ -400,6 +413,7 @@ func (s *frameCalibrationArmCamera) updateCfg(ctx context.Context) error {
 		}
 		s.cfg.JointPositions = append(s.cfg.JointPositions, jointFloats.Values)
 	}
+	s.cfg.Guess = makeFrameCfg(s.arm.Name().Name, s.guess)
 
 	return vmodutils.UpdateComponentCloudAttributesFromModuleEnv(ctx, s.name, s.cfg.getConvertedAttributes(), s.logger)
 }
@@ -448,6 +462,7 @@ func (s *frameCalibrationArmCamera) calibrate(ctx context.Context) (spatialmath.
 	}
 
 	dataCfg := calutils.DataConfig{DataPath: s.cachedPlanDir, SaveNewData: false, LoadOldDataset: false}
+	// run calibration with the current guess as the seed position
 	estimateReq := calutils.ReqFramePoseWithMotion{Arm: s.arm,
 		Motion: s.motion, PoseTracker: s.poseTracker, ExpectedTags: tags, CalibrationPoses: poses, SeedPose: s.guess, WS: s.ws}
 
@@ -503,7 +518,7 @@ func (s *frameCalibrationArmCamera) callMove(ctx context.Context, pose spatialma
 	return nil
 }
 
-func makeFrameCfg(arm string, pose spatialmath.Pose, cost float64) calOutput {
+func makeFrameCfg(arm string, pose spatialmath.Pose) referenceframe.LinkConfig {
 	orientationMap := map[string]any{}
 	orientationMap["x"] = pose.Orientation().OrientationVectorDegrees().OX
 	orientationMap["y"] = pose.Orientation().OrientationVectorDegrees().OY
@@ -511,7 +526,5 @@ func makeFrameCfg(arm string, pose spatialmath.Pose, cost float64) calOutput {
 	orientationMap["th"] = pose.Orientation().OrientationVectorDegrees().Theta
 
 	orientCfg := spatialmath.OrientationConfig{Type: spatialmath.OrientationVectorDegreesType, Value: orientationMap}
-	frame := referenceframe.LinkConfig{Translation: pose.Point(), Orientation: &orientCfg, Parent: arm}
-	out := calOutput{Frame: frame, Cost: cost}
-	return out
+	return referenceframe.LinkConfig{Translation: pose.Point(), Orientation: &orientCfg, Parent: arm}
 }

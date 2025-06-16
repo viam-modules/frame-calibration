@@ -27,6 +27,7 @@ The following attributes are available for this model:
 | `arm` | string | Required  | arm the camera is mounted on |
 | `tracker` | string | Required  | pose tracker configured to detect poses from a camera |
 | `joint_positions` | [][]float  | Required  | joint positions that the arm should move through |
+| `guess` | FrameConfig  | Optional  | the current guess of where the camera is mounted on the arm. This will update as calibration is performed |
 
 #### Example Configuration
 
