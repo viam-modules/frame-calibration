@@ -7,9 +7,9 @@
   "models": [
     {
       "api": "rdk:service:generic",
-      "model": "viam:frame-calibration:arm-camera",
+      "model": "viam:frame-calibration:camera-on-arm",
       "short_description": "calibrate a camera mounted on an arm using a posetracker",
-      "markdown_link": "README.md#model-viamframe-calibrationarm-camera"
+      "markdown_link": "README.md#model-viamframe-calibrationcamera-on-arm"
     }
   ],
   "applications": null,

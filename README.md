@@ -2,7 +2,7 @@
 
 This module is used for calibrating frames of cameras to be used in the frame system.
 
-## Model viam:frame-calibration:arm-camera
+## Model viam:frame-calibration:camera-on-arm
 
 This model is used to determine the frame of a camera mounted on an arm to be consumed by the frame system.
 
@@ -100,7 +100,7 @@ Please use the [erh:vmodutils:obstacle](https://app.viam.com/module/erh/vmodutil
 
 #### saveCalibrationPosition DoCommand
 
-`saveCalibrationPosition` will save the current arm position into the list of positions to calibrate with and update the `viam:frame-calibration:arm-camera`'s config. Passing in a positive integer will replace the specified index, while other inputs will append the positions at the end of the list. Use the config history feature if you wish to recover the removed positions.
+`saveCalibrationPosition` will save the current arm position into the list of positions to calibrate with and update the `viam:frame-calibration:camera-on-arm`'s config. Passing in a positive integer will replace the specified index, while other inputs will append the positions at the end of the list. Use the config history feature if you wish to recover the removed positions.
 
 ```json
 {
@@ -110,7 +110,7 @@ Please use the [erh:vmodutils:obstacle](https://app.viam.com/module/erh/vmodutil
 
 #### deleteCalibrationPosition DoCommand
 
-`deleteCalibrationPosition` will remove the specified set of joint positions from the `viam:frame-calibration:arm-camera`'s config. Use the config history feature if you wish to recover the removed positions.
+`deleteCalibrationPosition` will remove the specified set of joint positions from the `viam:frame-calibration:camera-on-arm`'s config. Use the config history feature if you wish to recover the removed positions.
 
 ```json
 {
@@ -120,7 +120,7 @@ Please use the [erh:vmodutils:obstacle](https://app.viam.com/module/erh/vmodutil
 
 #### clearCalibrationPositions DoCommand
 
-`clearCalibrationPositions` will remove the all joint positions from the `viam:frame-calibration:arm-camera`'s config. Use the config history feature if you wish to recover the removed positions.
+`clearCalibrationPositions` will remove the all joint positions from the `viam:frame-calibration:camera-on-arm`'s config. Use the config history feature if you wish to recover the removed positions.
 
 ```json
 {

@@ -28,7 +28,7 @@ import (
 )
 
 var (
-	ArmCamera        = resource.NewModel("viam", "frame-calibration", "arm-camera")
+	ArmCamera        = resource.NewModel("viam", "frame-calibration", "camera-on-arm")
 	errUnimplemented = errors.New("unimplemented")
 	errNoPoses       = errors.New("no poses are configured for the arm to move through")
 	errNoDo          = errors.New("no valid DoCommand submitted")
