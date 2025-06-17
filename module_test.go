@@ -54,9 +54,9 @@ func TestNewArmCamera(t *testing.T) {
 		Arm: fakeArm,
 	}
 
-	injectArm.ModelFrameFunc = func() referenceframe.Model {
+	injectArm.KinematicsFunc = func(ctx context.Context) (referenceframe.Model, error) {
 		model, _ := ur.MakeModelFrame("ur5e")
-		return model
+		return model, nil
 	}
 
 	injectPT := &inject.PoseTracker{}

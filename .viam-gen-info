@@ -4,7 +4,7 @@
   "language": "go",
   "resource_type": "service",
   "resource_subtype": "generic",
-  "model_name": "arm-camera",
+  "model_name": "camera-on-arm",
   "enable_cloud_build": true,
   "initialize_git": false,
   "generator_version": "0.1.0",

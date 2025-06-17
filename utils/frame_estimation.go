@@ -85,7 +85,11 @@ func EstimateFramePose(
 
 	printWorldStatePoses(req.Arm, tagPoses, req.SeedPose, req.ExpectedTags, calibrationPositions, logger)
 
-	sol, err := minimize(ctx, req.Arm.ModelFrame(), tagPoses, req.ExpectedTags, calibrationPositions, req.SeedPose, logger)
+	armModel, err := req.Arm.Kinematics(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	sol, err := minimize(ctx, armModel, tagPoses, req.ExpectedTags, calibrationPositions, req.SeedPose, logger)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -126,7 +130,11 @@ func EstimateFramePoseWithMotion(
 
 	printWorldStatePoses(req.Arm, tagPoses, req.SeedPose, req.ExpectedTags, jointPositions, logger)
 
-	sol, err := minimize(ctx, req.Arm.ModelFrame(), tagPoses, req.ExpectedTags, jointPositions, req.SeedPose, logger)
+	armModel, err := req.Arm.Kinematics(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	sol, err := minimize(ctx, armModel, tagPoses, req.ExpectedTags, jointPositions, req.SeedPose, logger)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -403,7 +411,11 @@ func getTagPosesWithMotion(
 }
 
 func averageJointPosition(ctx context.Context, a arm.Arm, n int) ([]referenceframe.Input, error) {
-	avg := make([]referenceframe.Input, len(a.ModelFrame().DoF()))
+	armModel, err := a.Kinematics(ctx)
+	if err != nil {
+		return nil, err
+	}
+	avg := make([]referenceframe.Input, len(armModel.DoF()))
 	for range n {
 		j, err := a.JointPositions(ctx, nil)
 		if err != nil {
@@ -427,6 +439,10 @@ func printWorldStatePoses(
 	calibrationPositions [][]referenceframe.Input,
 	logger logging.Logger,
 ) error {
+	armModel, err := a.Kinematics(context.Background())
+	if err != nil {
+		return err
+	}
 	for _, tag := range tags {
 		logger.Debugf("Tag #%s\n", tag)
 		for i, pose := range poses {
@@ -435,7 +451,7 @@ func printWorldStatePoses(
 				continue
 			}
 			logger.Debugf("\tPose #%d\t", i)
-			armPose, err := a.ModelFrame().Transform(calibrationPositions[i])
+			armPose, err := armModel.Transform(calibrationPositions[i])
 			if err != nil {
 				return err
 			}

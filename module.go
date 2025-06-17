@@ -28,7 +28,7 @@ import (
 )
 
 var (
-	ArmCamera        = resource.NewModel("viam", "frame-calibration", "arm-camera")
+	ArmCamera        = resource.NewModel("viam", "frame-calibration", "camera-on-arm")
 	errUnimplemented = errors.New("unimplemented")
 	errNoPoses       = errors.New("no poses are configured for the arm to move through")
 	errNoDo          = errors.New("no valid DoCommand submitted")
@@ -105,6 +105,7 @@ type frameCalibrationArmCamera struct {
 	cfg           *Config
 	poseTracker   posetracker.PoseTracker
 	arm           arm.Arm
+	armModel      referenceframe.Model
 	positions     [][]referenceframe.Input
 	guess         spatialmath.Pose
 	motion        motion.Service
@@ -179,6 +180,11 @@ func (s *frameCalibrationArmCamera) reconfigureWithConfig(ctx context.Context, d
 		return err
 	}
 
+	s.armModel, err = s.arm.Kinematics(ctx)
+	if err != nil {
+		return err
+	}
+
 	s.poseTracker, err = posetracker.FromDependencies(deps, conf.PoseTracker)
 	if err != nil {
 		return err
@@ -194,7 +200,7 @@ func (s *frameCalibrationArmCamera) reconfigureWithConfig(ctx context.Context, d
 	for _, jointPos := range conf.JointPositions {
 		pbPos := armPb.JointPositions{Values: jointPos}
 		// This will break when kinematics update
-		inputs := s.arm.ModelFrame().InputFromProtobuf(&pbPos)
+		inputs := s.armModel.InputFromProtobuf(&pbPos)
 		s.positions = append(s.positions, inputs)
 	}
 
@@ -323,7 +329,7 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 			if index >= len(s.positions) {
 				return nil, fmt.Errorf("index %v is out of range, only %v positions are set", reflect.TypeOf(value), len(s.positions))
 			}
-			goalPose, err := s.arm.ModelFrame().Transform(s.positions[index])
+			goalPose, err := s.armModel.Transform(s.positions[index])
 			if err != nil {
 				s.logger.Error(err)
 				return nil, err
@@ -364,7 +370,7 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				return nil, errors.New("no positions are set")
 			}
 			for index, pos := range s.positions {
-				jointFloats, err := referenceframe.JointPositionsFromInputs(s.arm.ModelFrame(), pos)
+				jointFloats, err := referenceframe.JointPositionsFromInputs(s.armModel, pos)
 				if err != nil {
 					s.logger.Error(err)
 					return nil, err
@@ -407,7 +413,7 @@ func (s *frameCalibrationArmCamera) updateCfg(ctx context.Context) error {
 	// ensure cfg matches the current set of positions
 	s.cfg.JointPositions = make([][]float64, 0, len(s.positions))
 	for _, pos := range s.positions {
-		jointFloats, err := referenceframe.JointPositionsFromInputs(s.arm.ModelFrame(), pos)
+		jointFloats, err := referenceframe.JointPositionsFromInputs(s.armModel, pos)
 		if err != nil {
 			return err
 		}
@@ -429,7 +435,7 @@ func (s *frameCalibrationArmCamera) Close(context.Context) error {
 func (s *frameCalibrationArmCamera) calibrationPoses() ([]spatialmath.Pose, error) {
 	poses := []spatialmath.Pose{}
 	for _, jointPos := range s.positions {
-		newPose, err := s.arm.ModelFrame().Transform(jointPos)
+		newPose, err := s.armModel.Transform(jointPos)
 		if err != nil {
 			return nil, err
 		}
