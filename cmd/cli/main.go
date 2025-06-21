@@ -63,5 +63,10 @@ func realMain() error {
 	}
 	defer thing.Close(ctx)
 
+	err = thing.FindPositions(ctx)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
