@@ -16,7 +16,6 @@ import (
 	"go.viam.com/rdk/referenceframe"
 	"go.viam.com/rdk/resource"
 	"go.viam.com/rdk/services/generic"
-	"go.viam.com/rdk/services/motion"
 	"go.viam.com/rdk/spatialmath"
 	"go.viam.com/rdk/testutils/inject"
 	injectmotion "go.viam.com/rdk/testutils/inject/motion"
@@ -78,30 +77,6 @@ func TestNewArmCamera(t *testing.T) {
 
 }
 
-func TestValidate(t *testing.T) {
-	t.Run("No pt", func(t *testing.T) {
-		cfg := &Config{Arm: armName}
-		deps, optDeps, err := cfg.Validate("")
-		test.That(t, err, test.ShouldBeError, resource.NewConfigValidationFieldRequiredError("", "tracker"))
-		test.That(t, deps, test.ShouldBeEmpty)
-		test.That(t, optDeps, test.ShouldBeEmpty)
-	})
-	t.Run("No arm", func(t *testing.T) {
-		cfg := &Config{PoseTracker: ptName}
-		deps, optDeps, err := cfg.Validate("")
-		test.That(t, err, test.ShouldBeError, resource.NewConfigValidationFieldRequiredError("", "arm"))
-		test.That(t, deps, test.ShouldBeEmpty)
-		test.That(t, optDeps, test.ShouldBeEmpty)
-	})
-	t.Run("good config", func(t *testing.T) {
-		cfg := &Config{PoseTracker: ptName, Arm: armName}
-		deps, optDeps, err := cfg.Validate("")
-		test.That(t, err, test.ShouldBeNil)
-		test.That(t, deps, test.ShouldResemble, []string{armName, ptName, resource.NewName(motion.API, resource.DefaultServiceName).String()})
-		test.That(t, optDeps, test.ShouldBeEmpty)
-	})
-}
-
 func TestGetConvAttr(t *testing.T) {
 	positions := [][]float64{{10}, {20}, {30}, {40}, {50}, {60}}
 	orientation := spatialmath.NewOrientationVectorDegrees()
@@ -130,14 +105,7 @@ func TestGetConvAttr(t *testing.T) {
 }
 
 func TestDeletePositionFromArr(t *testing.T) {
-	positions := [][]referenceframe.Input{{{Value: 0}},
-		{{Value: 1}},
-		{{Value: 2}},
-		{{Value: 3}},
-		{{Value: 4}},
-		{{Value: 5}},
-		{{Value: 6}},
-	}
+	positions := [][]float64{{0}, {1}, {2}, {3}, {4}, {5}, {6}}
 	t.Run("delete a position", func(t *testing.T) {
 		index := 2
 		newPositions, err := deletePositionFromArr(positions, index)

@@ -4,18 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"reflect"
 	"sync"
 	"time"
 
 	calutils "framecalibration/utils"
 
-	armPb "go.viam.com/api/component/arm/v1"
 	"go.viam.com/rdk/components/arm"
 	"go.viam.com/rdk/components/posetracker"
 	"go.viam.com/rdk/logging"
-	"go.viam.com/rdk/motionplan"
 	"go.viam.com/rdk/referenceframe"
 	"go.viam.com/rdk/resource"
 	"go.viam.com/rdk/services/generic"
@@ -57,6 +54,9 @@ func init() {
 type Config struct {
 	Arm         string `json:"arm"`
 	PoseTracker string `json:"tracker"`
+	Motion      string
+	ArmParent   string `json:"arm_parent"`
+
 	// joint positions are the easiest field for a user to access, but we may want to use poses in the config anyways
 	// or we use both with some predefined logic
 	JointPositions [][]float64               `json:"joint_positions"`
@@ -92,29 +92,31 @@ func (cfg *Config) Validate(path string) ([]string, []string, error) {
 	}
 	deps = append(deps, cfg.PoseTracker)
 
-	// add motion dependency
-	deps = append(deps, resource.NewName(motion.API, resource.DefaultServiceName).String())
+	if cfg.Motion != "" {
+		if cfg.ArmParent == "" {
+			return nil, nil, fmt.Errorf("if motion not empty, need an arm_parent")
+		}
+		deps = append(deps, motion.Named(cfg.Motion).String())
+	}
 
 	return deps, nil, nil
 }
 
-type frameCalibrationArmCamera struct {
-	name resource.Name
+type FrameCalibrationArmCamera struct {
+	resource.AlwaysRebuild
+	resource.TriviallyCloseable
 
-	logger        logging.Logger
-	cfg           *Config
-	poseTracker   posetracker.PoseTracker
-	arm           arm.Arm
-	armModel      referenceframe.Model
-	positions     [][]referenceframe.Input
-	guess         spatialmath.Pose
-	motion        motion.Service
-	ws            *referenceframe.WorldState
-	cachedPlanDir string
+	name   resource.Name
+	cfg    *Config
+	logger logging.Logger
 
-	cancelCtx  context.Context
-	cancelFunc func()
-	mu         sync.Mutex
+	poseTracker posetracker.PoseTracker
+	arm         arm.Arm
+	armModel    referenceframe.Model
+
+	motion motion.Service // could be nil
+
+	mu sync.Mutex
 }
 
 type positionOutput struct {
@@ -137,90 +139,50 @@ func newFrameCalibrationArmCamera(ctx context.Context, deps resource.Dependencie
 
 }
 
-func NewArmCamera(ctx context.Context, deps resource.Dependencies, name resource.Name, conf *Config, logger logging.Logger) (resource.Resource, error) {
+func NewArmCamera(ctx context.Context, deps resource.Dependencies, name resource.Name, conf *Config, logger logging.Logger) (*FrameCalibrationArmCamera, error) {
 
-	cancelCtx, cancelFunc := context.WithCancel(context.Background())
-
-	s := &frameCalibrationArmCamera{
-		name:       name,
-		logger:     logger,
-		cancelCtx:  cancelCtx,
-		cancelFunc: cancelFunc,
-		cfg:        &Config{},
-		guess:      spatialmath.NewZeroPose(),
+	s := &FrameCalibrationArmCamera{
+		name:   name,
+		logger: logger,
+		cfg:    conf,
 	}
 
-	if err := s.reconfigureWithConfig(ctx, deps, conf); err != nil {
-		return nil, err
-	}
-	return s, nil
-}
-
-func (s *frameCalibrationArmCamera) Reconfigure(ctx context.Context, deps resource.Dependencies, rawConf resource.Config) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	conf, err := resource.NativeConfig[*Config](rawConf)
-	if err != nil {
-		return err
-	}
-	if err = s.reconfigureWithConfig(ctx, deps, conf); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (s *frameCalibrationArmCamera) reconfigureWithConfig(ctx context.Context, deps resource.Dependencies, conf *Config) error {
 	var err error
-
-	s.cachedPlanDir = os.Getenv("VIAM_MODULE_DATA")
 
 	s.arm, err = arm.FromDependencies(deps, conf.Arm)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	s.armModel, err = s.arm.Kinematics(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
+
+	s.logger.Infof("eliot %v", s.armModel.Name())
 
 	s.poseTracker, err = posetracker.FromDependencies(deps, conf.PoseTracker)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	s.motion, err = motion.FromDependencies(deps, "builtin")
-	if err != nil {
-		return err
-	}
-
-	// always reconfigure positions
-	s.positions = [][]referenceframe.Input{}
-	for _, jointPos := range conf.JointPositions {
-		pbPos := armPb.JointPositions{Values: jointPos}
-		// This will break when kinematics update
-		inputs := s.armModel.InputFromProtobuf(&pbPos)
-		s.positions = append(s.positions, inputs)
-	}
-
-	s.ws = referenceframe.NewEmptyWorldState()
-
-	s.guess, err = conf.Guess.Pose()
-	if err != nil {
-		return err
+	if conf.Motion != "" {
+		s.motion, err = motion.FromDependencies(deps, conf.Motion)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	s.cfg = conf
 
-	return nil
+	return s, nil
 }
 
-func (s *frameCalibrationArmCamera) Name() resource.Name {
+func (s *FrameCalibrationArmCamera) Name() resource.Name {
 	return s.name
 }
 
-func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[string]interface{}) (map[string]interface{}, error) {
+func (s *FrameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[string]interface{}) (map[string]interface{}, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	resp := map[string]interface{}{}
@@ -256,7 +218,7 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				}
 				output[intNumAttempts-i-1] = calOutput{Frame: makeFrameCfg(s.arm.Name().Name, pose), Cost: cost}
 				// store the result to use in the next calibration
-				s.guess = pose
+				s.cfg.Guess = makeFrameCfg(s.arm.Name().Name, pose)
 			}
 			// update the config with the calibration result
 			if err := s.updateCfg(ctx); err != nil {
@@ -279,12 +241,12 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 			resp[moveArmKey] = "success"
 			resp["tags seen"] = numTags
 		case numSeenTagsKey:
-			tags, err := calutils.DiscoverTags(ctx, s.poseTracker)
+			poses, err := s.poseTracker.Poses(ctx, nil, nil)
 			if err != nil {
 				s.logger.Error(err)
 				return nil, err
 			}
-			resp[numSeenTagsKey] = fmt.Sprintf("number of tags seen: %v", len(tags))
+			resp[numSeenTagsKey] = fmt.Sprintf("number of tags seen: %v", len(poses))
 		case saveAndUpdateKey:
 			indexFloat, ok := value.(float64)
 			if !ok {
@@ -306,13 +268,12 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 
 			switch {
 			case index < 0:
-				s.positions = append(s.positions, pos)
-				resp[saveAndUpdateKey] = fmt.Sprintf("joint position %v added to config", len(s.positions)-1)
-
-			case index >= len(s.positions):
-				return nil, fmt.Errorf("index %v is out of range, only %v positions are set", reflect.TypeOf(value), len(s.positions))
+				s.cfg.JointPositions = append(s.cfg.JointPositions, referenceframe.InputsToFloats(pos))
+				resp[saveAndUpdateKey] = fmt.Sprintf("joint position %v added to config", len(s.cfg.JointPositions)-1)
+			case index >= len(s.cfg.JointPositions):
+				return nil, fmt.Errorf("index %v is out of range, only %v positions are set", reflect.TypeOf(value), len(s.cfg.JointPositions))
 			default:
-				s.positions[index] = pos
+				s.cfg.JointPositions[index] = referenceframe.InputsToFloats(pos)
 				resp[saveAndUpdateKey] = fmt.Sprintf("joint position %v updated in config", index)
 			}
 			if err := s.updateCfg(ctx); err != nil {
@@ -323,18 +284,11 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 		case moveArmIndexKey:
 			indexFloat, ok := value.(float64)
 			if !ok {
-				return nil, fmt.Errorf("removing position, expected int got %v", reflect.TypeOf(value))
+				return nil, fmt.Errorf("moving position, expected int got %v", reflect.TypeOf(value))
 			}
 			index := int(indexFloat)
-			if index >= len(s.positions) {
-				return nil, fmt.Errorf("index %v is out of range, only %v positions are set", reflect.TypeOf(value), len(s.positions))
-			}
-			goalPose, err := s.armModel.Transform(s.positions[index])
-			if err != nil {
-				s.logger.Error(err)
-				return nil, err
-			}
-			if err := s.callMove(ctx, goalPose); err != nil {
+
+			if err := s.MoveToSavedPosition(ctx, index); err != nil {
 				s.logger.Error(err)
 				return nil, err
 			}
@@ -343,7 +297,7 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				return nil, ctx.Err()
 			}
 			// discover tags for pose estimation
-			tags, err := calutils.DiscoverTags(ctx, s.poseTracker)
+			tags, err := s.poseTracker.Poses(ctx, nil, nil)
 			if err != nil {
 				s.logger.Error(err)
 				return nil, err
@@ -356,32 +310,15 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				return nil, fmt.Errorf("removing position, expected int got %v", reflect.TypeOf(value))
 			}
 			index := int(indexFloat)
-			pos, err := deletePositionFromArr(s.positions, index)
+			pos, err := deletePositionFromArr(s.cfg.JointPositions, index)
 			if err != nil {
 				return nil, err
 			}
-			s.positions = pos
+			s.cfg.JointPositions = pos
 			resp[deletePosKey] = "position deleted"
-			// fallthrough to print updated positions
-			fallthrough
-		case getPositionsKey:
-			outputs := []positionOutput{}
-			if len(s.positions) == 0 {
-				return nil, errors.New("no positions are set")
-			}
-			for index, pos := range s.positions {
-				jointFloats, err := referenceframe.JointPositionsFromInputs(s.armModel, pos)
-				if err != nil {
-					s.logger.Error(err)
-					return nil, err
-				}
-				out := positionOutput{Index: index, Position: jointFloats.Values}
-				outputs = append(outputs, out)
-			}
-			resp[getPositionsKey] = outputs
 		case clearCalibrationPositions:
-			s.positions = [][]referenceframe.Input{}
-			s.guess = spatialmath.NewZeroPose()
+			s.cfg.JointPositions = [][]float64{}
+			s.cfg.Guess = makeFrameCfg(s.arm.Name().Name, spatialmath.NewZeroPose())
 			resp[clearCalibrationPositions] = "positions removed"
 			if err := s.updateCfg(ctx); err != nil {
 				s.logger.Error(err)
@@ -399,90 +336,43 @@ func (s *frameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 	return resp, nil
 }
 
-func deletePositionFromArr(arr [][]referenceframe.Input, index int) ([][]referenceframe.Input, error) {
+func deletePositionFromArr(arr [][]float64, index int) ([][]float64, error) {
 	if index >= len(arr) {
 		return nil, fmt.Errorf("index %v out of range %v", index, len(arr))
 	}
-	newArr := make([][]referenceframe.Input, 0)
+	newArr := make([][]float64, 0)
 	newArr = append(newArr, arr[:index]...)
 	newArr = append(newArr, arr[index+1:]...)
 	return newArr, nil
 }
 
-func (s *frameCalibrationArmCamera) updateCfg(ctx context.Context) error {
-	// ensure cfg matches the current set of positions
-	s.cfg.JointPositions = make([][]float64, 0, len(s.positions))
-	for _, pos := range s.positions {
-		jointFloats, err := referenceframe.JointPositionsFromInputs(s.armModel, pos)
-		if err != nil {
-			return err
-		}
-		s.cfg.JointPositions = append(s.cfg.JointPositions, jointFloats.Values)
-	}
-	s.cfg.Guess = makeFrameCfg(s.arm.Name().Name, s.guess)
-
+func (s *FrameCalibrationArmCamera) updateCfg(ctx context.Context) error {
 	return vmodutils.UpdateComponentCloudAttributesFromModuleEnv(ctx, s.name, s.cfg.getConvertedAttributes(), s.logger)
 }
 
-func (s *frameCalibrationArmCamera) Close(context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	// Put close code here
-	s.cancelFunc()
-	return nil
-}
-
-func (s *frameCalibrationArmCamera) calibrationPoses() ([]spatialmath.Pose, error) {
-	poses := []spatialmath.Pose{}
-	for _, jointPos := range s.positions {
-		newPose, err := s.armModel.Transform(jointPos)
-		if err != nil {
-			return nil, err
-		}
-		poses = append(poses, newPose)
-	}
-	return poses, nil
-}
-
-func (s *frameCalibrationArmCamera) calibrate(ctx context.Context) (spatialmath.Pose, float64, error) {
-	if len(s.positions) == 0 {
+func (s *FrameCalibrationArmCamera) calibrate(ctx context.Context) (spatialmath.Pose, float64, error) {
+	if len(s.cfg.JointPositions) == 0 {
 		return nil, 0, errNoPoses
 	}
-	// get poses
-	poses, err := s.calibrationPoses()
+
+	seed, err := s.cfg.Guess.Pose()
 	if err != nil {
-		return nil, 0, err
-	}
-	// move to initial pose.
-	constraints := motionplan.NewEmptyConstraints()
-	posInF := referenceframe.NewPoseInFrame(referenceframe.World, poses[0])
-	req := motion.MoveReq{ComponentName: s.arm.Name(), Destination: posInF, WorldState: s.ws, Constraints: constraints}
-	if _, err = s.motion.Move(ctx, req); err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("cannot parse guess %w", err)
 	}
 
-	// discover tags for pose estimation
-	tags, err := calutils.DiscoverTags(ctx, s.poseTracker)
-	if err != nil {
-		return nil, 0, err
+	estimateReq := calutils.ReqFramePose{
+		Arm:         s.arm,
+		PoseTracker: s.poseTracker,
+		Mover:       s,
+		SeedPose:    seed,
 	}
 
-	dataCfg := calutils.DataConfig{DataPath: s.cachedPlanDir, SaveNewData: false, LoadOldDataset: false}
-	// run calibration with the current guess as the seed position
-	estimateReq := calutils.ReqFramePoseWithMotion{Arm: s.arm,
-		Motion: s.motion, PoseTracker: s.poseTracker, ExpectedTags: tags, CalibrationPoses: poses, SeedPose: s.guess, WS: s.ws}
-
-	return calutils.EstimateFramePoseWithMotion(ctx, estimateReq, dataCfg, s.logger)
+	return calutils.EstimateFramePose(ctx, estimateReq, s.logger)
 }
 
-func (s *frameCalibrationArmCamera) moveArm(ctx context.Context, delay int) ([]int, error) {
-	if len(s.positions) == 0 {
+func (s *FrameCalibrationArmCamera) moveArm(ctx context.Context, delay int) ([]int, error) {
+	if len(s.cfg.JointPositions) == 0 {
 		return nil, errNoPoses
-	}
-	// get poses
-	poses, err := s.calibrationPoses()
-	if err != nil {
-		return nil, err
 	}
 
 	if delay == 0 {
@@ -490,17 +380,17 @@ func (s *frameCalibrationArmCamera) moveArm(ctx context.Context, delay int) ([]i
 	}
 
 	numTags := make([]int, 0)
-	for index, pos := range poses {
-		s.logger.Debugf("moving to position %v, pose %v", index, pos)
+	for index := range s.NumPositions() {
+		s.logger.Debugf("moving to position %v, pose %v", index, s.cfg.JointPositions[index])
 
-		if err := s.callMove(ctx, pos); err != nil {
+		if err := s.MoveToSavedPosition(ctx, index); err != nil {
 			return nil, err
 		}
 		// sleep to give time to check camera
 		if !utils.SelectContextOrWait(ctx, time.Duration(delay)*time.Second) {
 			return nil, ctx.Err()
 		}
-		tags, err := calutils.DiscoverTags(ctx, s.poseTracker)
+		tags, err := s.poseTracker.Poses(ctx, nil, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -512,12 +402,31 @@ func (s *frameCalibrationArmCamera) moveArm(ctx context.Context, delay int) ([]i
 
 }
 
-func (s *frameCalibrationArmCamera) callMove(ctx context.Context, pose spatialmath.Pose) error {
-	constraints := motionplan.NewEmptyConstraints()
+func (s *FrameCalibrationArmCamera) NumPositions() int {
+	return len(s.cfg.JointPositions)
+}
 
-	posInF := referenceframe.NewPoseInFrame(referenceframe.World, pose)
+func (s *FrameCalibrationArmCamera) MoveToSavedPosition(ctx context.Context, pos int) error {
+	if pos >= len(s.cfg.JointPositions) {
+		return fmt.Errorf("pos %d invalid (%d)", pos, len(s.cfg.JointPositions))
+	}
 
-	req := motion.MoveReq{ComponentName: s.arm.Name(), Destination: posInF, WorldState: s.ws, Constraints: constraints}
+	inp := referenceframe.FloatsToInputs(s.cfg.JointPositions[pos])
+
+	s.logger.Debugf("MoveToSavedPosition pos: %d raw: %v input: %v", pos, s.cfg.JointPositions[pos], inp)
+
+	if s.motion == nil {
+		return s.arm.MoveToJointPositions(ctx, inp, nil)
+	}
+
+	goalPose, err := s.armModel.Transform(inp)
+	if err != nil {
+		return err
+	}
+
+	posInF := referenceframe.NewPoseInFrame(s.cfg.ArmParent, goalPose)
+
+	req := motion.MoveReq{ComponentName: s.arm.Name(), Destination: posInF}
 	if _, err := s.motion.Move(ctx, req); err != nil {
 		return err
 	}
@@ -533,4 +442,26 @@ func makeFrameCfg(arm string, pose spatialmath.Pose) referenceframe.LinkConfig {
 
 	orientCfg := spatialmath.OrientationConfig{Type: spatialmath.OrientationVectorDegreesType, Value: orientationMap}
 	return referenceframe.LinkConfig{Translation: pose.Point(), Orientation: &orientCfg, Parent: arm}
+}
+
+func (s FrameCalibrationArmCamera) FindPositions(ctx context.Context) error {
+	if s.motion == nil {
+		return fmt.Errorf("need a motion service to use FindPositions")
+	}
+
+	poses, err := s.poseTracker.Poses(ctx, nil, nil)
+	if err != nil {
+		return err
+	}
+
+	s.logger.Infof("poses (%d)\n %v %v", len(poses), poses["0"], poses["1"])
+
+	current, err := s.motion.GetPose(ctx, s.arm.Name(), "world", nil, nil)
+	if err != nil {
+		return err
+	}
+
+	s.logger.Infof("current: %v", current)
+
+	return nil
 }

@@ -9,6 +9,8 @@ ifeq ($(VIAM_TARGET_OS), windows)
 	MODULE_BINARY = bin/frame-calibration.exe
 endif
 
+all: test module.tar.gz
+
 clean:
 	rm -f $(MODULE_BINARY)
 	rm -f module.tar.gz
@@ -26,8 +28,7 @@ update:
 test:
 	go test ./...
 
-module.tar.gz: clean meta.json $(MODULE_BINARY)
-	rm -f $@
+module.tar.gz: meta.json $(MODULE_BINARY) *.go utils/*.go
 ifeq ($(VIAM_TARGET_OS), windows)
 	jq '.entrypoint = "./bin/frame-calibration.exe"' meta.json > temp.json && mv temp.json meta.json
 else
@@ -39,8 +40,6 @@ ifeq ($(VIAM_TARGET_OS), windows)
 endif
 
 module: module.tar.gz
-
-all: test module.tar.gz
 
 setup:
 	go mod tidy
