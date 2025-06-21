@@ -413,7 +413,7 @@ func (s *frameCalibrationArmCamera) MoveToSavedPosition(ctx context.Context, pos
 
 	inp := referenceframe.FloatsToInputs(s.cfg.JointPositions[pos])
 
-	s.logger.Infof("MoveToSavedPosition pos: %d raw: %v input: %v", pos, s.cfg.JointPositions[pos], inp)
+	s.logger.Debugf("MoveToSavedPosition pos: %d raw: %v input: %v", pos, s.cfg.JointPositions[pos], inp)
 
 	if s.motion == nil {
 		return s.arm.MoveToJointPositions(ctx, inp, nil)
