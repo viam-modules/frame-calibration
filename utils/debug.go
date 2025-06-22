@@ -26,7 +26,7 @@ func getDataFileName() string {
 	t := time.Now()
 	return fmt.Sprintf("%s/frame-calibration-data-%s.json",
 		root,
-		t.Format("2006-01-02-15-04-05"),
+		t.Format("2006-01-02-15-04-05.99"),
 	)
 }
 
