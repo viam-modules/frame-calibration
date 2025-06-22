@@ -72,10 +72,12 @@ func realMain() error {
 		return nil
 	}
 
-	err = thing.FindPositions(ctx)
+	p, err := thing.AutoCalibrate(ctx)
 	if err != nil {
 		return err
 	}
+
+	logger.Infof("found %v", p.Pose())
 
 	return nil
 }
