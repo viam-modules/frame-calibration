@@ -92,7 +92,7 @@ func Minimize(
 				}
 			}
 		}
-		// logger.Info(cumSum, input)
+
 		return cumSum / float64(len(data[0].Tags))
 	}
 
@@ -105,7 +105,6 @@ func Minimize(
 	ikErr := make(chan error, 1)
 
 	var activeSolvers sync.WaitGroup
-	defer activeSolvers.Wait()
 	activeSolvers.Add(1)
 
 	ctxWithCancel, cancel := context.WithCancel(ctx)
@@ -113,65 +112,73 @@ func Minimize(
 
 	// Spawn the IK solver to generate solutions until done
 	utils.PanicCapturingGo(func() {
-		defer close(ikErr)
 		defer activeSolvers.Done()
 		ikErr <- solver.Solve(ctxWithCancel, solutionGen, poseToFloats(seedPose), lossFunction, randSeed)
 	})
 
-	solutions := map[float64][]float64{}
+	solutions := []BasicNode{}
 
-	// Solve the IK solver. Loop labels are required because `break` etc in a `select` will break only the `select`.
-IK:
-	for {
+	err = nil
+	done := false
+	for err == nil && !done {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			err = ctx.Err()
 		default:
 		}
 
 		select {
 		case solution := <-solutionGen:
-			solutions[solution.Score] = solution.Configuration
-			continue IK
+			solutions = append(solutions, BasicNode{solution.Configuration, solution.Score})
 		default:
 		}
 
 		select {
-		case <-ikErr:
-			// If we have a return from the IK solver, there are no more solutions, so we finish processing above
-			// until we've drained the channel, handled by the `continue` above
-			break IK
+		case e := <-ikErr:
+			err = e
+			done = true
 		default:
 		}
 	}
 
 	// Cancel any ongoing processing within the IK solvers if we're done receiving solutions
 	cancel()
-	for done := false; !done; {
-		select {
-		case <-solutionGen:
-		default:
-			done = true
-		}
+
+	activeSolvers.Wait()
+
+	close(solutionGen)
+	close(ikErr)
+
+	if err != nil {
+		return nil, err
 	}
 
 	if len(solutions) == 0 {
 		return nil, errors.New("no solutions found")
 	}
 
-	keys := make([]float64, 0, len(solutions))
-	for k := range solutions {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-
-	orderedSolutions := make([]BasicNode, 0)
-	for _, key := range keys {
-		solution := solutions[key]
-		if len(solution) == 0 {
-			continue
+	solutions = slices.DeleteFunc(solutions, func(s BasicNode) bool {
+		allZeros := true
+		for _, v := range s.q {
+			if math.IsNaN(v) {
+				return true
+			}
+			if v != 0 {
+				allZeros = false
+			}
 		}
-		orderedSolutions = append(orderedSolutions, BasicNode{q: solution, Cost: key})
-	}
-	return orderedSolutions, nil
+		return allZeros
+	})
+
+	slices.SortFunc(solutions, func(a, b BasicNode) int {
+		if a.Cost < b.Cost {
+			return -1
+		}
+		if a.Cost > b.Cost {
+			return 1
+		}
+		return 0
+	})
+
+	return solutions, nil
 }
