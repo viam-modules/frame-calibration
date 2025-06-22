@@ -8,10 +8,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/golang/geo/r3"
+
 	calutils "framecalibration/utils"
 
 	"go.viam.com/rdk/components/arm"
 	"go.viam.com/rdk/components/posetracker"
+	"go.viam.com/rdk/components/switch"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/referenceframe"
 	"go.viam.com/rdk/resource"
@@ -56,6 +59,7 @@ type Config struct {
 	PoseTracker string `json:"tracker"`
 	Motion      string
 	ArmParent   string `json:"arm_parent"`
+	AutoStart   string `json:"auto_start"`
 
 	// joint positions are the easiest field for a user to access, but we may want to use poses in the config anyways
 	// or we use both with some predefined logic
@@ -99,6 +103,10 @@ func (cfg *Config) Validate(path string) ([]string, []string, error) {
 		deps = append(deps, motion.Named(cfg.Motion).String())
 	}
 
+	if cfg.AutoStart != "" {
+		deps = append(deps, cfg.AutoStart)
+	}
+
 	return deps, nil, nil
 }
 
@@ -114,7 +122,8 @@ type FrameCalibrationArmCamera struct {
 	arm         arm.Arm
 	armModel    referenceframe.Model
 
-	motion motion.Service // could be nil
+	motion    motion.Service      // could be nil
+	autoStart toggleswitch.Switch // could be nil
 
 	mu sync.Mutex
 }
@@ -159,8 +168,6 @@ func NewArmCamera(ctx context.Context, deps resource.Dependencies, name resource
 		return nil, err
 	}
 
-	s.logger.Infof("eliot %v", s.armModel.Name())
-
 	s.poseTracker, err = posetracker.FromDependencies(deps, conf.PoseTracker)
 	if err != nil {
 		return nil, err
@@ -168,6 +175,13 @@ func NewArmCamera(ctx context.Context, deps resource.Dependencies, name resource
 
 	if conf.Motion != "" {
 		s.motion, err = motion.FromDependencies(deps, conf.Motion)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if conf.AutoStart != "" {
+		s.autoStart, err = toggleswitch.FromDependencies(deps, conf.AutoStart)
 		if err != nil {
 			return nil, err
 		}
@@ -211,7 +225,7 @@ func (s *FrameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 			}
 
 			for i := range intNumAttempts {
-				pose, cost, err := s.calibrate(ctx)
+				pose, cost, err := s.Calibrate(ctx)
 				if err != nil {
 					s.logger.Error(err)
 					return nil, err
@@ -288,7 +302,7 @@ func (s *FrameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 			}
 			index := int(indexFloat)
 
-			if err := s.MoveToSavedPosition(ctx, index); err != nil {
+			if _, _, err := s.MoveToSavedPosition(ctx, index); err != nil {
 				s.logger.Error(err)
 				return nil, err
 			}
@@ -350,7 +364,7 @@ func (s *FrameCalibrationArmCamera) updateCfg(ctx context.Context) error {
 	return vmodutils.UpdateComponentCloudAttributesFromModuleEnv(ctx, s.name, s.cfg.getConvertedAttributes(), s.logger)
 }
 
-func (s *FrameCalibrationArmCamera) calibrate(ctx context.Context) (spatialmath.Pose, float64, error) {
+func (s *FrameCalibrationArmCamera) Calibrate(ctx context.Context) (spatialmath.Pose, float64, error) {
 	if len(s.cfg.JointPositions) == 0 {
 		return nil, 0, errNoPoses
 	}
@@ -361,7 +375,6 @@ func (s *FrameCalibrationArmCamera) calibrate(ctx context.Context) (spatialmath.
 	}
 
 	estimateReq := calutils.ReqFramePose{
-		Arm:         s.arm,
 		PoseTracker: s.poseTracker,
 		Mover:       s,
 		SeedPose:    seed,
@@ -383,7 +396,7 @@ func (s *FrameCalibrationArmCamera) moveArm(ctx context.Context, delay int) ([]i
 	for index := range s.NumPositions() {
 		s.logger.Debugf("moving to position %v, pose %v", index, s.cfg.JointPositions[index])
 
-		if err := s.MoveToSavedPosition(ctx, index); err != nil {
+		if _, _, err := s.MoveToSavedPosition(ctx, index); err != nil {
 			return nil, err
 		}
 		// sleep to give time to check camera
@@ -406,9 +419,21 @@ func (s *FrameCalibrationArmCamera) NumPositions() int {
 	return len(s.cfg.JointPositions)
 }
 
-func (s *FrameCalibrationArmCamera) MoveToSavedPosition(ctx context.Context, pos int) error {
+func (s *FrameCalibrationArmCamera) ArmPosition(ctx context.Context) ([]referenceframe.Input, spatialmath.Pose, error) {
+	j, err := calutils.AverageJointPosition(ctx, s.arm, 100) // TODO: is this really needed
+	if err != nil {
+		return nil, nil, err
+	}
+	p, err := s.armModel.Transform(j)
+	if err != nil {
+		return nil, nil, err
+	}
+	return j, p, nil
+}
+
+func (s *FrameCalibrationArmCamera) MoveToSavedPosition(ctx context.Context, pos int) ([]referenceframe.Input, spatialmath.Pose, error) {
 	if pos >= len(s.cfg.JointPositions) {
-		return fmt.Errorf("pos %d invalid (%d)", pos, len(s.cfg.JointPositions))
+		return nil, nil, fmt.Errorf("pos %d invalid (%d)", pos, len(s.cfg.JointPositions))
 	}
 
 	inp := referenceframe.FloatsToInputs(s.cfg.JointPositions[pos])
@@ -416,21 +441,26 @@ func (s *FrameCalibrationArmCamera) MoveToSavedPosition(ctx context.Context, pos
 	s.logger.Debugf("MoveToSavedPosition pos: %d raw: %v input: %v", pos, s.cfg.JointPositions[pos], inp)
 
 	if s.motion == nil {
-		return s.arm.MoveToJointPositions(ctx, inp, nil)
+		err := s.arm.MoveToJointPositions(ctx, inp, nil)
+		if err != nil {
+			return nil, nil, err
+		}
+		return s.ArmPosition(ctx)
 	}
 
 	goalPose, err := s.armModel.Transform(inp)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	posInF := referenceframe.NewPoseInFrame(s.cfg.ArmParent, goalPose)
 
 	req := motion.MoveReq{ComponentName: s.arm.Name(), Destination: posInF}
 	if _, err := s.motion.Move(ctx, req); err != nil {
-		return err
+		return nil, nil, err
 	}
-	return nil
+
+	return s.ArmPosition(ctx)
 }
 
 func makeFrameCfg(arm string, pose spatialmath.Pose) referenceframe.LinkConfig {
@@ -445,23 +475,164 @@ func makeFrameCfg(arm string, pose spatialmath.Pose) referenceframe.LinkConfig {
 }
 
 func (s FrameCalibrationArmCamera) FindPositions(ctx context.Context) error {
+
+	sleepTime := 5 * time.Second
+
 	if s.motion == nil {
 		return fmt.Errorf("need a motion service to use FindPositions")
 	}
 
-	poses, err := s.poseTracker.Poses(ctx, nil, nil)
+	if s.autoStart != nil {
+		err := s.autoStart.SetPosition(ctx, 2, nil)
+		if err != nil {
+			return err
+		}
+		time.Sleep(sleepTime)
+	}
+
+	poses, err := calutils.GetPoses(ctx, s.poseTracker)
 	if err != nil {
 		return err
 	}
 
-	s.logger.Infof("poses (%d)\n %v %v", len(poses), poses["0"], poses["1"])
+	if len(poses) != 24 {
+		return fmt.Errorf("got %d poses, expected 24", len(poses))
+	}
 
-	current, err := s.motion.GetPose(ctx, s.arm.Name(), "world", nil, nil)
+	poseKey, poseValue := pickPose(poses)
+
+	s.logger.Infof("poses (%d) %v %v", len(poses), poseKey, poseValue)
+
+	guess := referenceframe.NewLinkInFrame(
+		s.cfg.Arm, // we know this is wrong, but it's an idea
+		&poseValue,
+		"guess",
+		nil,
+	)
+
+	ws, err := referenceframe.NewWorldState(nil, []*referenceframe.LinkInFrame{guess})
 	if err != nil {
 		return err
 	}
 
-	s.logger.Infof("current: %v", current)
+	start, err := s.motion.GetPose(ctx, resource.Name{Name: "guess"}, "world", []*referenceframe.LinkInFrame{guess}, nil)
+	if err != nil {
+		return err
+	}
+
+	s.logger.Infof("start: %v", start)
+
+	data := []calutils.ArmAndPoses{}
+
+	allPosesToTry := allPoseMods(start.Pose())
+
+	for idx, mod := range allPosesToTry {
+		next := referenceframe.NewPoseInFrame(
+			"world",
+			mod,
+		)
+
+		s.logger.Infof("mod:%v (%d/%d)\n\t  %v", mod, idx, len(allPosesToTry), next.Pose())
+
+		_, err = s.motion.Move(
+			ctx,
+			motion.MoveReq{
+				ComponentName: resource.Name{Name: "guess"},
+				Destination:   next,
+				WorldState:    ws,
+			},
+		)
+		if err != nil {
+			s.logger.Debugf("cannot go there %v", err)
+			continue
+		}
+
+		time.Sleep(sleepTime)
+
+		poses2, err := calutils.GetPoses(ctx, s.poseTracker)
+		if err != nil {
+			return err
+		}
+
+		if len(poses2) != len(poses) {
+			s.logger.Infof("\t bad poses after move %d", len(poses2))
+			continue
+		}
+
+		s.logger.Infof("GOOD!")
+
+		jj, pp, err := s.ArmPosition(ctx)
+		if err != nil {
+			return err
+		}
+		data = append(data, calutils.ArmAndPoses{jj, calutils.NewSimplePose(pp), poses2})
+	}
+
+	s.logger.Infof("number of good positions: %d", len(data))
+
+	sol, err := calutils.Minimize(ctx, data, &poseValue, s.logger)
+	if err != nil {
+		return err
+	}
+
+	p := sol[0].Pose()
+	s.logger.Info("Optimization Guess: ", p, sol[0].Cost)
 
 	return nil
+}
+
+func allPoseMods(start spatialmath.Pose) []spatialmath.Pose {
+	const r = .1
+	const step = .05
+
+	startPoint := start.Point()
+	startOrientation := start.Orientation().OrientationVectorDegrees()
+
+	all := []spatialmath.Pose{}
+
+	for a := -1 * r; a <= r; a += step {
+
+		// these account for orientation offsets
+		oChoices := []r3.Vector{
+			{X: a},
+			{Y: a},
+			{Z: a},
+		}
+
+		// these account for lateral offsets
+		pChoices := []r3.Vector{
+			{X: a * 1000},
+			{Y: a * 1000},
+			{Z: a * 1000},
+		}
+
+		for _, to := range oChoices {
+			for _, tp := range pChoices {
+				for th := 0.0; th <= 360; th += 90 {
+					all = append(all, spatialmath.NewPose(
+						r3.Vector{
+							X: startPoint.X + tp.X,
+							Y: startPoint.Y + tp.Y,
+							Z: startPoint.Z + tp.Z,
+						},
+						&spatialmath.OrientationVectorDegrees{
+							OX:    startOrientation.OX + to.X,
+							OY:    startOrientation.OY + to.Y,
+							OZ:    startOrientation.OZ + to.Z,
+							Theta: th,
+						},
+					))
+				}
+			}
+		}
+	}
+
+	return all
+}
+
+func pickPose(x map[string]calutils.SimplePose) (string, calutils.SimplePose) {
+	for k, v := range x {
+		return k, v
+	}
+	panic(1)
 }

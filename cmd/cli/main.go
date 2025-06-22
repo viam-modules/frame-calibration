@@ -63,6 +63,15 @@ func realMain() error {
 	}
 	defer thing.Close(ctx)
 
+	if len(conf.JointPositions) > 0 {
+		p, cost, err := thing.Calibrate(ctx)
+		if err != nil {
+			return err
+		}
+		logger.Infof("p: %v cost: %0.2f", p, cost)
+		return nil
+	}
+
 	err = thing.FindPositions(ctx)
 	if err != nil {
 		return err
