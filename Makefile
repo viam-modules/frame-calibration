@@ -15,7 +15,7 @@ clean:
 	rm -f $(MODULE_BINARY)
 	rm -f module.tar.gz
 
-$(MODULE_BINARY): Makefile go.mod *.go cmd/module/*.go 
+$(MODULE_BINARY): Makefile go.mod *.go cmd/module/*.go utils/*.go
 	$(GO_BUILD_ENV) go build $(GO_BUILD_FLAGS) -o $(MODULE_BINARY) cmd/module/main.go
 
 lint:
@@ -28,7 +28,7 @@ update:
 test:
 	go test ./...
 
-module.tar.gz: meta.json $(MODULE_BINARY) *.go utils/*.go
+module.tar.gz: meta.json $(MODULE_BINARY)
 ifeq ($(VIAM_TARGET_OS), windows)
 	jq '.entrypoint = "./bin/frame-calibration.exe"' meta.json > temp.json && mv temp.json meta.json
 else
