@@ -15,7 +15,7 @@ import (
 
 	"go.viam.com/rdk/components/arm"
 	"go.viam.com/rdk/components/posetracker"
-	"go.viam.com/rdk/components/switch"
+	toggleswitch "go.viam.com/rdk/components/switch"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/referenceframe"
 	"go.viam.com/rdk/resource"
@@ -45,6 +45,9 @@ const (
 	getPositionsKey           = "getCalibrationPositions"
 	deletePosKey              = "deleteCalibrationPosition"
 	clearCalibrationPositions = "clearCalibrationPositions"
+	autoCalibrateKey          = "autoCalibrate"
+	saveGuessKey              = "saveGuess"
+	defaultExpectedTags       = 24
 )
 
 func init() {
@@ -58,7 +61,7 @@ func init() {
 type Config struct {
 	Arm         string `json:"arm"`
 	PoseTracker string `json:"tracker"`
-	Motion      string
+	Motion      string `json:"motion"`
 	ArmParent   string `json:"arm_parent"`
 	AutoStart   string `json:"auto_start"`
 
@@ -68,6 +71,7 @@ type Config struct {
 	Guess          referenceframe.LinkConfig `json:"guess"`
 
 	SleepSeconds float64 `json:"sleep_seconds"`
+	ExpectedTags int     `json:"num_expected_tags"`
 }
 
 func (cfg *Config) sleepTime() time.Duration {
@@ -139,11 +143,6 @@ type FrameCalibrationArmCamera struct {
 	mu sync.Mutex
 }
 
-type positionOutput struct {
-	Index    int       `json:"index"`
-	Position []float64 `json:"position"`
-}
-
 type calOutput struct {
 	Frame referenceframe.LinkConfig `json:"frame"`
 	Cost  float64                   `json:"cost"`
@@ -196,6 +195,9 @@ func NewArmCamera(ctx context.Context, deps resource.Dependencies, name resource
 		if err != nil {
 			return nil, err
 		}
+	}
+	if conf.ExpectedTags == 0 {
+		conf.ExpectedTags = defaultExpectedTags
 	}
 
 	s.cfg = conf
@@ -344,7 +346,17 @@ func (s *FrameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				s.logger.Error(err)
 				return nil, err
 			}
-
+		case autoCalibrateKey:
+			node, err := s.AutoCalibrate(ctx)
+			if err != nil {
+				return nil, err
+			}
+			resp[autoCalibrateKey] = calOutput{Frame: makeFrameCfg(s.arm.Name().Name, node.Pose()), Cost: node.Cost}
+		case saveGuessKey:
+			if err := s.updateCfg(ctx); err != nil {
+				s.logger.Error(err)
+				return nil, err
+			}
 		default:
 			resp[key] = "unsupported key"
 		}
@@ -457,7 +469,8 @@ func (s *FrameCalibrationArmCamera) MoveToSavedPosition(ctx context.Context, pos
 
 	posInF := referenceframe.NewPoseInFrame(s.cfg.ArmParent, goalPose)
 
-	req := motion.MoveReq{ComponentName: s.arm.Name(), Destination: posInF}
+	req := motion.MoveReq{ComponentName: s.arm.Name(), Destination: posInF, Extra: map[string]any{"timeout": 30}}
+
 	if _, err := s.motion.Move(ctx, req); err != nil {
 		return nil, nil, err
 	}
@@ -476,7 +489,7 @@ func makeFrameCfg(arm string, pose spatialmath.Pose) referenceframe.LinkConfig {
 	return referenceframe.LinkConfig{Translation: pose.Point(), Orientation: &orientCfg, Parent: arm}
 }
 
-func (s FrameCalibrationArmCamera) ArmPositionAndPoses(ctx context.Context) (calutils.ArmAndPoses, error) {
+func (s *FrameCalibrationArmCamera) ArmPositionAndPoses(ctx context.Context) (calutils.ArmAndPoses, error) {
 
 	poses, err := calutils.GetPoses(ctx, s.poseTracker)
 	if err != nil {
@@ -491,7 +504,7 @@ func (s FrameCalibrationArmCamera) ArmPositionAndPoses(ctx context.Context) (cal
 	return calutils.ArmAndPoses{jj, calutils.NewSimplePose(pp), poses}, nil
 }
 
-func (s FrameCalibrationArmCamera) roughGuessHelp2(ctx context.Context, start []referenceframe.Input, joint int, jogAbsoluteStep, jogAbsoluteMax float64) (calutils.ArmAndPoses, error) {
+func (s *FrameCalibrationArmCamera) roughGuessHelp2(ctx context.Context, start []referenceframe.Input, joint int, jogAbsoluteStep, jogAbsoluteMax float64) (calutils.ArmAndPoses, error) {
 	prev := calutils.ArmAndPoses{}
 
 	initial := 1.0
@@ -554,7 +567,7 @@ func (s FrameCalibrationArmCamera) roughGuessHelp(ctx context.Context, data []ca
 	return data, nil
 }
 
-func (s FrameCalibrationArmCamera) RoughGuess(ctx context.Context) (*calutils.BasicNode, []calutils.ArmAndPoses, error) {
+func (s *FrameCalibrationArmCamera) RoughGuess(ctx context.Context) (*calutils.BasicNode, []calutils.ArmAndPoses, error) {
 	if s.autoStart != nil {
 		err := s.autoStart.SetPosition(ctx, 2, nil)
 		if err != nil {
@@ -617,8 +630,8 @@ func (s FrameCalibrationArmCamera) AutoCalibrate(ctx context.Context) (*calutils
 		return guessPose, err
 	}
 
-	if len(poses) != 24 {
-		return guessPose, fmt.Errorf("got %d poses, expected 24", len(poses))
+	if len(poses) < s.cfg.ExpectedTags {
+		return guessPose, fmt.Errorf("got %d poses, expected at least %v", len(poses), s.cfg.ExpectedTags)
 	}
 
 	guess := referenceframe.NewLinkInFrame(
@@ -753,11 +766,4 @@ func allPoseMods(start spatialmath.Pose) []spatialmath.Pose {
 	}
 
 	return all
-}
-
-func pickPose(x map[string]calutils.SimplePose) (string, calutils.SimplePose) {
-	for k, v := range x {
-		return k, v
-	}
-	panic(1)
 }

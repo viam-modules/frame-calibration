@@ -6,6 +6,20 @@ This module is used for calibrating frames of cameras to be used in the frame sy
 
 This model is used to determine the frame of a camera mounted on an arm to be consumed by the frame system.
 
+### Usage
+
+To use this model, take the following steps:
+
+1. Configure a posetracker component to use for calibration. The recommended module is the [apriltag module](https://app.viam.com/module/luddite/apriltag).
+2. Print out an apriltag family to use with calibration. Other kinds of posetrackers may use a different object for tracking. The [frame calibration github repo](https://github.com/viam-modules/frame-calibration) has an example apriltag family to use.
+3. Configure the `camera-on-arm` model with an arm and pose tracker, along with any other optional settings that you want to include.
+4. Move the arm into a position where the camera can see all of the expected poses. You can use the `checkTags`DoCommand to see the number of visible tags.
+5. Use the `saveCalibrationPosition` DoCommand to add this position to your config.
+6. Repeat steps 4 and 5 until you have 6-8 different arm positions. Try to select positions that cover different viewpoints while still having a straightforward motion plan.
+7. use the `runCalibration` DoCommand to start calibration. Have this calibration multiple times to try getting a better result. Also make sure the numbers make sense!
+8. Copy the calibration result into your camera's frame config.
+9. (Optional) Use the `saveCalibration` DoCommand to save the calibration guess. This will add the calibration result to the `camera-on-arm` config, which will be used for future calibrations.
+
 ### Configuration
 
 The following attribute template can be used to configure this model:
@@ -26,8 +40,12 @@ The following attributes are available for this model:
 |---------------|--------|-----------|----------------------------|
 | `arm` | string | Required  | arm the camera is mounted on |
 | `tracker` | string | Required  | pose tracker configured to detect poses from a camera |
-| `joint_positions` | [][]float  | Required  | joint positions that the arm should move through |
-| `guess` | FrameConfig  | Optional  | the current guess of where the camera is mounted on the arm. This will update as calibration is performed |
+| `motion` | string | Optional  | optional motion service to move the arm with. The **builtin** motion service is always available to configure here. |
+| `arm_parent` | string | Optional  | parent frame of the arm to use with motion planning. Required if motion is configured. **world** is usually a good frame to start with. |
+| `sleep_seconds` | float64 | Optional  | number of seconds for the arm to sleep between moves. Default is 1 second |
+| `num_expected_tags` | int | Optional  | number of poses that the camera/pose tracker should be able to see. Default is 24 tags. |
+| `joint_positions` | [][]float  | Required  | joint positions that the arm should move through. Positions are in radians |
+| `guess` | FrameConfig  | Optional  | the current guess of where the camera is mounted on the arm. Use the **saveGuess** DoCommand to store the latest calibration result here. |
 
 #### Example Configuration
 
@@ -35,9 +53,11 @@ The following attributes are available for this model:
 {
   "arm": "my-arm",
   "tracker": "my-tracker",
+  "motion": "builtin",
+  "arm_parent": "world",
   "joint_positions": [
-    [10,20,30,40,50,60], 
-    [60,50,40,30,20,10], 
+    [0.1, 0.2, 0.3, 0.4, 0.5, 0.6], 
+    [0, 0, 0, 0, 0, 0], 
   ]
 }
 ```
@@ -55,6 +75,26 @@ Please use the [erh:vmodutils:obstacle](https://app.viam.com/module/erh/vmodutil
 ```json
 {
   "runCalibration": <int>
+}
+```
+
+#### autoCalibrate DoCommand
+
+`autoCalibrate` will generate a set of positions for the arm to test based on the current position of the arm, returning the calibration frame. This feature is experimental.
+
+```json
+{
+  "autoCalibrate": ""
+}
+```
+
+#### saveGuess DoCommand
+
+`saveGuess` will add the current calibration result to the config of the camera-on-arm model. This result will be used in future calibrations to help improve the optimization.
+
+```json
+{
+  "saveGuess": ""
 }
 ```
 
