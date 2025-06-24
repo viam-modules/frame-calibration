@@ -559,7 +559,7 @@ func (s FrameCalibrationArmCamera) roughGuessHelp(ctx context.Context, data []ca
 	if err != nil {
 		return nil, err
 	}
-	if len(dd.Tags) < 20 {
+	if len(dd.Tags) < s.cfg.ExpectedTags-4 {
 		return nil, fmt.Errorf("too few tags for positive look j:%d %d", joint, len(dd.Tags))
 	}
 	data = append(data, dd)
