@@ -35,21 +35,6 @@ var (
 	errNoDo          = errors.New("no valid DoCommand submitted")
 )
 
-const (
-	// check READMe DoCommands or Module docs for a full explanation of what these commands do.
-	calibrateKey              = "runCalibration"
-	moveArmKey                = "moveArm"
-	moveArmIndexKey           = "moveArmToPosition"
-	numSeenTagsKey            = "checkTags"
-	saveAndUpdateKey          = "saveCalibrationPosition"
-	getPositionsKey           = "getCalibrationPositions"
-	deletePosKey              = "deleteCalibrationPosition"
-	clearCalibrationPositions = "clearCalibrationPositions"
-	autoCalibrateKey          = "autoCalibrate"
-	saveGuessKey              = "saveGuess"
-	defaultExpectedTags       = 24
-)
-
 func init() {
 	resource.RegisterService(generic.API, ArmCamera,
 		resource.Registration[resource.Resource, *Config]{
@@ -196,8 +181,9 @@ func NewArmCamera(ctx context.Context, deps resource.Dependencies, name resource
 			return nil, err
 		}
 	}
+	// default number of tags to see is 24.
 	if conf.ExpectedTags == 0 {
-		conf.ExpectedTags = defaultExpectedTags
+		conf.ExpectedTags = 24
 	}
 
 	s.cfg = conf
@@ -215,7 +201,7 @@ func (s *FrameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 	resp := map[string]interface{}{}
 	for key, value := range cmd {
 		switch key {
-		case calibrateKey:
+		case "runCalibration":
 			numAttempts, ok := value.(float64)
 			if !ok {
 				// check if it was a string
@@ -253,23 +239,23 @@ func (s *FrameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				return nil, err
 			}
 			resp["note - calibration"] = "use the frame with the lowest cost score. For more reliable results, increase the number of attempts"
-			resp[calibrateKey] = output
-		case moveArmKey:
+			resp["runCalibration"] = output
+		case "moveArm":
 			numTags, err := s.moveArm(ctx)
 			if err != nil {
 				s.logger.Error(err)
 				return nil, err
 			}
-			resp[moveArmKey] = "success"
+			resp["moveArm"] = "success"
 			resp["tags seen"] = numTags
-		case numSeenTagsKey:
+		case "checkTags":
 			poses, err := s.poseTracker.Poses(ctx, nil, nil)
 			if err != nil {
 				s.logger.Error(err)
 				return nil, err
 			}
-			resp[numSeenTagsKey] = fmt.Sprintf("number of tags seen: %v", len(poses))
-		case saveAndUpdateKey:
+			resp["checkTags"] = fmt.Sprintf("number of tags seen: %v", len(poses))
+		case "saveCalibrationPosition":
 			indexFloat, ok := value.(float64)
 			if !ok {
 				// check if it was a string
@@ -291,19 +277,19 @@ func (s *FrameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 			switch {
 			case index < 0:
 				s.cfg.JointPositions = append(s.cfg.JointPositions, referenceframe.InputsToFloats(pos))
-				resp[saveAndUpdateKey] = fmt.Sprintf("joint position %v added to config", len(s.cfg.JointPositions)-1)
+				resp["saveCalibrationPosition"] = fmt.Sprintf("joint position %v added to config", len(s.cfg.JointPositions)-1)
 			case index >= len(s.cfg.JointPositions):
 				return nil, fmt.Errorf("index %v is out of range, only %v positions are set", reflect.TypeOf(value), len(s.cfg.JointPositions))
 			default:
 				s.cfg.JointPositions[index] = referenceframe.InputsToFloats(pos)
-				resp[saveAndUpdateKey] = fmt.Sprintf("joint position %v updated in config", index)
+				resp["saveCalibrationPosition"] = fmt.Sprintf("joint position %v updated in config", index)
 			}
 			if err := s.updateCfg(ctx); err != nil {
 				s.logger.Error(err)
 				return nil, err
 			}
 			resp["note - config update"] = "config changes may take a few seconds to update"
-		case moveArmIndexKey:
+		case "moveArmToPosition":
 			indexFloat, ok := value.(float64)
 			if !ok {
 				return nil, fmt.Errorf("moving position, expected int got %v", reflect.TypeOf(value))
@@ -324,9 +310,9 @@ func (s *FrameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				s.logger.Error(err)
 				return nil, err
 			}
-			resp[moveArmIndexKey] = len(tags)
+			resp["moveArmToPosition"] = len(tags)
 
-		case deletePosKey:
+		case "deleteCalibrationPosition":
 			indexFloat, ok := value.(float64)
 			if !ok {
 				return nil, fmt.Errorf("removing position, expected int got %v", reflect.TypeOf(value))
@@ -337,22 +323,22 @@ func (s *FrameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				return nil, err
 			}
 			s.cfg.JointPositions = pos
-			resp[deletePosKey] = "position deleted"
-		case clearCalibrationPositions:
+			resp["deleteCalibrationPosition"] = "position deleted"
+		case "clearCalibrationPositions":
 			s.cfg.JointPositions = [][]float64{}
 			s.cfg.Guess = makeFrameCfg(s.arm.Name().Name, spatialmath.NewZeroPose())
-			resp[clearCalibrationPositions] = "positions removed"
+			resp["clearCalibrationPositions"] = "positions removed"
 			if err := s.updateCfg(ctx); err != nil {
 				s.logger.Error(err)
 				return nil, err
 			}
-		case autoCalibrateKey:
+		case "autoCalibrate":
 			node, err := s.AutoCalibrate(ctx)
 			if err != nil {
 				return nil, err
 			}
-			resp[autoCalibrateKey] = calOutput{Frame: makeFrameCfg(s.arm.Name().Name, node.Pose()), Cost: node.Cost}
-		case saveGuessKey:
+			resp["autoCalibrate"] = calOutput{Frame: makeFrameCfg(s.arm.Name().Name, node.Pose()), Cost: node.Cost}
+		case "saveGuess":
 			if err := s.updateCfg(ctx); err != nil {
 				s.logger.Error(err)
 				return nil, err
