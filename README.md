@@ -11,7 +11,7 @@ This model is used to determine the frame of a camera mounted on an arm to be co
 To use this model, take the following steps:
 
 1. Configure a posetracker component to use for calibration. The recommended module is the [apriltag module](https://app.viam.com/module/luddite/apriltag).
-2. Print out an apriltag family to use with calibration. Other kinds of posetrackers may use a different object for tracking. The [frame calibration github repo](https://github.com/viam-modules/frame-calibration) has an example apriltag family to use.
+2. Print out an apriltag family to use with calibration. Other kinds of posetrackers may use a different object for tracking. The frame calibration github repo has an [example apriltag family](https://github.com/viam-modules/frame-calibration/blob/main/tag36h11_1-30.pdf) to use.
 3. Configure the `camera-on-arm` model with an arm and pose tracker, along with any other optional settings that you want to include.
 4. Move the arm into a position where the camera can see all of the expected poses. You can use the `checkTags`DoCommand to see the number of visible tags.
 5. Use the `saveCalibrationPosition` DoCommand to add this position to your config.
