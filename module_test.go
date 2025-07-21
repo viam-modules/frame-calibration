@@ -10,7 +10,6 @@ import (
 
 	"go.viam.com/rdk/components/arm"
 	armFake "go.viam.com/rdk/components/arm/fake"
-	ur "go.viam.com/rdk/components/arm/universalrobots"
 	"go.viam.com/rdk/components/posetracker"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/referenceframe"
@@ -51,11 +50,6 @@ func TestNewArmCamera(t *testing.T) {
 
 	injectArm := &inject.Arm{
 		Arm: fakeArm,
-	}
-
-	injectArm.KinematicsFunc = func(ctx context.Context) (referenceframe.Model, error) {
-		model, _ := ur.MakeModelFrame("ur5e")
-		return model, nil
 	}
 
 	injectPT := &inject.PoseTracker{}
