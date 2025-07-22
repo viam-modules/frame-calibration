@@ -2,7 +2,6 @@ package utils
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/golang/geo/r3"
@@ -34,7 +33,6 @@ func EstimateFramePose(
 	req ReqFramePose,
 	logger logging.Logger,
 ) (spatialmath.Pose, float64, error) {
-
 	data, err := getTagPoses(ctx, req.PoseTracker, req.Mover)
 	if err != nil {
 		return nil, 0, err
@@ -99,10 +97,6 @@ func getTagPoses(
 		poses, err := GetPoses(ctx, pt)
 		if err != nil {
 			return nil, err
-		}
-
-		if idx > 0 && len(poses) != len(data[0].Tags) {
-			return nil, fmt.Errorf("poses %d and %d have different number of tags %d vs %d", 0, idx, len(data[0].Tags), len(poses))
 		}
 
 		data = append(data, ArmAndPoses{joints, NewSimplePose(pose), poses})
