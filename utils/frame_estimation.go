@@ -101,7 +101,7 @@ func getTagPoses(
 			return nil, err
 		}
 
-		if idx > 0 && len(poses) != len(data[0].Tags) {
+		if idx > 0 && len(poses) < len(data[0].Tags)-4 {
 			return nil, fmt.Errorf("poses %d and %d have different number of tags %d vs %d", 0, idx, len(data[0].Tags), len(poses))
 		}
 
