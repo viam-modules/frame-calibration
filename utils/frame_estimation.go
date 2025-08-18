@@ -21,9 +21,10 @@ type SavedArmPositionGoer interface {
 
 // ReqFramePose is the request to determine a camera's frame position using a motion service on a viam-server.
 type ReqFramePose struct {
-	PoseTracker posetracker.PoseTracker
-	SeedPose    spatialmath.Pose
-	Mover       SavedArmPositionGoer
+	PoseTracker  posetracker.PoseTracker
+	SeedPose     spatialmath.Pose
+	Mover        SavedArmPositionGoer
+	ExpectedTags int
 }
 
 // EstimateFramePose estimates the frame of a camera with respect to an arm using an arm's MoveToJointPositions.
@@ -35,7 +36,7 @@ func EstimateFramePose(
 	logger logging.Logger,
 ) (spatialmath.Pose, float64, error) {
 
-	data, err := getTagPoses(ctx, req.PoseTracker, req.Mover)
+	data, err := getTagPoses(ctx, req.PoseTracker, req.Mover, req.ExpectedTags)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -84,6 +85,7 @@ func getTagPoses(
 	ctx context.Context,
 	pt posetracker.PoseTracker,
 	mover SavedArmPositionGoer,
+	numExpectedTags int,
 ) ([]ArmAndPoses, error) {
 
 	data := []ArmAndPoses{}
@@ -101,7 +103,7 @@ func getTagPoses(
 			return nil, err
 		}
 
-		if idx > 0 && len(poses) != len(data[0].Tags) {
+		if idx > 0 && len(poses) < numExpectedTags {
 			return nil, fmt.Errorf("poses %d and %d have different number of tags %d vs %d", 0, idx, len(data[0].Tags), len(poses))
 		}
 
