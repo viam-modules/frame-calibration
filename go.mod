@@ -7,7 +7,6 @@ toolchain go1.24.3
 require (
 	github.com/erh/vmodutils v0.1.5-0.20250526231959-e58744b3297b
 	github.com/golang/geo v0.0.0-20250509130527-0a13e5a5d53d
-	go.viam.com/api v0.1.438
 	go.viam.com/rdk v0.79.0
 	go.viam.com/test v1.2.4
 	go.viam.com/utils v0.1.145
@@ -182,6 +181,7 @@ require (
 	go.uber.org/goleak v1.3.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
+	go.viam.com/api v0.1.438 // indirect
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20230525183740-e7c30c78aeb2 // indirect
 	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
 	golang.org/x/crypto v0.38.0 // indirect
