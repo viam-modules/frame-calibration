@@ -5,11 +5,11 @@ go 1.23.8
 toolchain go1.24.3
 
 require (
-	github.com/erh/vmodutils v0.1.5-0.20250526231959-e58744b3297b
+	github.com/erh/vmodutils v0.2.11-0.20250818182018-d09c0164a399
 	github.com/golang/geo v0.0.0-20250509130527-0a13e5a5d53d
-	go.viam.com/rdk v0.84.1-0.20250721055812-83a3ca25929e
+	go.viam.com/rdk v0.88.1
 	go.viam.com/test v1.2.4
-	go.viam.com/utils v0.1.152
+	go.viam.com/utils v0.1.158
 )
 
 require (
@@ -24,7 +24,6 @@ require (
 	github.com/a8m/envsubst v1.4.2 // indirect
 	github.com/ajstarks/svgo v0.0.0-20211024235047-1546f124cd8b // indirect
 	github.com/apache/arrow/go/arrow v0.0.0-20201229220542-30ce2eb5d4dc // indirect
-	github.com/aptible/supercronic v0.2.33 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aybabtme/uniplot v0.0.0-20151203143629-039c559e5e7e // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
@@ -78,6 +77,7 @@ require (
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-nlopt/nlopt v0.0.0-20230219125344-443d3362dcb5 // indirect
+	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/go-pdf/fpdf v0.6.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.3.0 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
@@ -112,6 +112,7 @@ require (
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/lmittmann/ppm v1.0.2 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
+	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
@@ -147,15 +148,20 @@ require (
 	github.com/pion/webrtc/v3 v3.2.36 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rs/cors v1.11.1 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/samber/lo v1.51.0 // indirect
 	github.com/sergi/go-diff v1.3.1 // indirect
+	github.com/shirou/gopsutil/v3 v3.24.5 // indirect
+	github.com/shoenig/go-m1cpu v0.1.6 // indirect
 	github.com/spf13/cast v1.5.0 // indirect
 	github.com/srikrsna/protoc-gen-gotag v0.6.2 // indirect
 	github.com/stretchr/testify v1.10.0 // indirect
+	github.com/tklauser/go-sysconf v0.3.12 // indirect
+	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/urfave/cli/v2 v2.10.3 // indirect
 	github.com/viamrobotics/ice/v2 v2.3.39 // indirect
@@ -170,6 +176,7 @@ require (
 	github.com/xtgo/set v1.0.0 // indirect
 	github.com/yosuke-furukawa/json5 v0.1.1 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
+	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zhuyie/golzf v0.0.0-20161112031142-8387b0307ade // indirect
 	github.com/zitadel/oidc/v3 v3.37.0 // indirect
 	github.com/zitadel/schema v1.3.1 // indirect
@@ -186,7 +193,7 @@ require (
 	go.uber.org/goleak v1.3.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
-	go.viam.com/api v0.1.455 // indirect
+	go.viam.com/api v0.1.460 // indirect
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20230525183740-e7c30c78aeb2 // indirect
 	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
 	golang.org/x/crypto v0.40.0 // indirect
@@ -220,5 +227,3 @@ require (
 	periph.io/x/conn/v3 v3.7.0 // indirect
 	periph.io/x/host/v3 v3.8.1-0.20230331112814-9f0d9f7d76db // indirect
 )
-
-replace github.com/erh/vmodutils => github.com/johnn193/vmodutils v0.0.0-20250721060206-de4cf6166aa1
