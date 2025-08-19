@@ -343,6 +343,7 @@ func (s *FrameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				s.logger.Error(err)
 				return nil, err
 			}
+			resp[key] = "guess saved"
 		default:
 			resp[key] = "unsupported key"
 		}
