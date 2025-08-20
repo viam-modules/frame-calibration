@@ -300,10 +300,6 @@ func (s *FrameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				s.logger.Error(err)
 				return nil, err
 			}
-			// sleep to give time to check camera
-			if !utils.SelectContextOrWait(ctx, s.cfg.sleepTime()) {
-				return nil, ctx.Err()
-			}
 			// discover tags for pose estimation
 			tags, err := s.poseTracker.Poses(ctx, nil, nil)
 			if err != nil {
@@ -400,16 +396,11 @@ func (s *FrameCalibrationArmCamera) moveArm(ctx context.Context) ([]int, error) 
 		if _, _, err := s.MoveToSavedPosition(ctx, index); err != nil {
 			return nil, err
 		}
-		// sleep to give time to check camera
-		if !utils.SelectContextOrWait(ctx, s.cfg.sleepTime()) {
-			return nil, ctx.Err()
-		}
 		tags, err := s.poseTracker.Poses(ctx, nil, nil)
 		if err != nil {
 			return nil, err
 		}
 		numTags = append(numTags, len(tags))
-
 	}
 
 	return numTags, nil
@@ -446,6 +437,10 @@ func (s *FrameCalibrationArmCamera) MoveToSavedPosition(ctx context.Context, pos
 		if err != nil {
 			return nil, nil, err
 		}
+		// sleep to give time to check camera
+		if !utils.SelectContextOrWait(ctx, s.cfg.sleepTime()) {
+			return nil, nil, ctx.Err()
+		}
 		return s.ArmPosition(ctx)
 	}
 
@@ -460,6 +455,10 @@ func (s *FrameCalibrationArmCamera) MoveToSavedPosition(ctx context.Context, pos
 
 	if _, err := s.motion.Move(ctx, req); err != nil {
 		return nil, nil, err
+	}
+	// sleep to give time to check camera
+	if !utils.SelectContextOrWait(ctx, s.cfg.sleepTime()) {
+		return nil, nil, ctx.Err()
 	}
 
 	return s.ArmPosition(ctx)
