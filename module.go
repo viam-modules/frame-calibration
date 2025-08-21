@@ -74,6 +74,16 @@ func (cfg *Config) getConvertedAttributes() rdkutils.AttributeMap {
 		"joint_positions": cfg.JointPositions,
 		"guess":           cfg.Guess,
 	}
+	if cfg.Motion != "" {
+		attrMap["motion"] = cfg.Motion
+		attrMap["arm_parent"] = cfg.ArmParent
+	}
+	if cfg.SleepSeconds > 0 {
+		attrMap["sleep_seconds"] = cfg.SleepSeconds
+	}
+	if cfg.ExpectedTags > 0 {
+		attrMap["num_expected_tags"] = cfg.ExpectedTags
+	}
 
 	return attrMap
 
