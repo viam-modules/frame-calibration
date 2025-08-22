@@ -3,7 +3,6 @@ package utils
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/golang/geo/r3"
 
@@ -101,8 +100,6 @@ func getTagPoses(
 		if err != nil {
 			return nil, err
 		}
-
-		time.Sleep(time.Second) // TODO: wait for camera to settle....
 
 		poses, err := GetPoses(ctx, pt)
 		if err != nil {
