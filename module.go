@@ -57,6 +57,8 @@ type Config struct {
 
 	SleepSeconds float64 `json:"sleep_seconds"`
 	ExpectedTags int     `json:"num_expected_tags"`
+
+	Limits []referenceframe.Limit `json:"limits"`
 }
 
 func (cfg *Config) sleepTime() time.Duration {
@@ -76,7 +78,6 @@ func (cfg *Config) getConvertedAttributes() rdkutils.AttributeMap {
 	}
 
 	return attrMap
-
 }
 
 // Validate ensures all parts of the config are valid and important fields exist.
@@ -383,6 +384,7 @@ func (s *FrameCalibrationArmCamera) Calibrate(ctx context.Context) (spatialmath.
 		PoseTracker: s.poseTracker,
 		Mover:       s,
 		SeedPose:    seed,
+		Limits:      s.cfg.Limits,
 	}
 
 	return calutils.EstimateFramePose(ctx, estimateReq, s.logger)
@@ -579,7 +581,7 @@ func (s *FrameCalibrationArmCamera) RoughGuess(ctx context.Context) (*calutils.B
 
 	s.logger.Infof("RoughGuess num data points: %d", len(data))
 
-	res, err := calutils.Minimize(ctx, data, spatialmath.NewZeroPose(), s.logger)
+	res, err := calutils.Minimize(ctx, s.cfg.Limits, data, spatialmath.NewZeroPose(), s.logger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -682,7 +684,7 @@ func (s FrameCalibrationArmCamera) AutoCalibrate(ctx context.Context) (*calutils
 
 	s.logger.Infof("number of good positions: %d", len(data))
 
-	sol, err := calutils.Minimize(ctx, data, guessPose.Pose(), s.logger)
+	sol, err := calutils.Minimize(ctx, s.cfg.Limits, data, guessPose.Pose(), s.logger)
 	if err != nil {
 		return guessPose, err
 	}

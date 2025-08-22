@@ -25,6 +25,7 @@ type ReqFramePose struct {
 	SeedPose     spatialmath.Pose
 	Mover        SavedArmPositionGoer
 	ExpectedTags int
+	Limits       []referenceframe.Limit
 }
 
 // EstimateFramePose estimates the frame of a camera with respect to an arm using an arm's MoveToJointPositions.
@@ -41,7 +42,12 @@ func EstimateFramePose(
 		return nil, 0, err
 	}
 
-	sol, err := Minimize(ctx, data, req.SeedPose, logger)
+	if len(req.Limits) == 0 {
+		logger.Warnf("no limits specified, using very large defaults")
+		req.Limits = defaultLimits
+	}
+
+	sol, err := Minimize(ctx, req.Limits, data, req.SeedPose, logger)
 	if err != nil {
 		return nil, 0, err
 	}

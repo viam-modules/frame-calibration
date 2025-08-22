@@ -16,7 +16,7 @@ func TestData1(t *testing.T) {
 	data, res, err := ReadData("data/test1.json")
 	test.That(t, err, test.ShouldBeNil)
 
-	x, err := Minimize(ctx, data, spatialmath.NewZeroPose(), logger)
+	x, err := Minimize(ctx, defaultLimits, data, spatialmath.NewZeroPose(), logger)
 	test.That(t, err, test.ShouldBeNil)
 
 	xx := x[0].Pose()
@@ -51,7 +51,7 @@ func TestData1LessTags(t *testing.T) {
 		}
 	}
 
-	x, err := Minimize(ctx, data, spatialmath.NewZeroPose(), logger)
+	x, err := Minimize(ctx, defaultLimits, data, spatialmath.NewZeroPose(), logger)
 	test.That(t, err, test.ShouldBeNil)
 
 	xx := x[0].Pose()

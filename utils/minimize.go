@@ -23,7 +23,7 @@ const (
 	iterations             = 10000
 )
 
-var limits = []referenceframe.Limit{
+var defaultLimits = []referenceframe.Limit{
 	// R3 Vector
 	{Min: -500, Max: 500}, // X(mm)
 	{Min: -500, Max: 500}, // Y(mm)
@@ -55,10 +55,16 @@ func poseToFloats(p spatialmath.Pose) []float64 {
 
 func Minimize(
 	ctx context.Context,
+	limits []referenceframe.Limit,
 	data []ArmAndPoses,
 	seedPose spatialmath.Pose,
 	logger logging.Logger,
 ) ([]BasicNode, error) {
+
+	if len(limits) == 0 {
+		logger.Warnf("no limits specified to minimize, using huge defaults")
+		limits = defaultLimits
+	}
 
 	tags := maps.Keys(data[0].Tags)
 
