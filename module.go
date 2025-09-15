@@ -76,6 +76,16 @@ func (cfg *Config) getConvertedAttributes() rdkutils.AttributeMap {
 		"joint_positions": cfg.JointPositions,
 		"guess":           cfg.Guess,
 	}
+	if cfg.Motion != "" {
+		attrMap["motion"] = cfg.Motion
+		attrMap["arm_parent"] = cfg.ArmParent
+	}
+	if cfg.SleepSeconds > 0 {
+		attrMap["sleep_seconds"] = cfg.SleepSeconds
+	}
+	if cfg.ExpectedTags > 0 {
+		attrMap["num_expected_tags"] = cfg.ExpectedTags
+	}
 
 	return attrMap
 }
@@ -301,10 +311,6 @@ func (s *FrameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 				s.logger.Error(err)
 				return nil, err
 			}
-			// sleep to give time to check camera
-			if !utils.SelectContextOrWait(ctx, s.cfg.sleepTime()) {
-				return nil, ctx.Err()
-			}
 			// discover tags for pose estimation
 			tags, err := s.poseTracker.Poses(ctx, nil, nil)
 			if err != nil {
@@ -402,16 +408,11 @@ func (s *FrameCalibrationArmCamera) moveArm(ctx context.Context) ([]int, error) 
 		if _, _, err := s.MoveToSavedPosition(ctx, index); err != nil {
 			return nil, err
 		}
-		// sleep to give time to check camera
-		if !utils.SelectContextOrWait(ctx, s.cfg.sleepTime()) {
-			return nil, ctx.Err()
-		}
 		tags, err := s.poseTracker.Poses(ctx, nil, nil)
 		if err != nil {
 			return nil, err
 		}
 		numTags = append(numTags, len(tags))
-
 	}
 
 	return numTags, nil
@@ -448,6 +449,10 @@ func (s *FrameCalibrationArmCamera) MoveToSavedPosition(ctx context.Context, pos
 		if err != nil {
 			return nil, nil, err
 		}
+		// sleep to give time to check camera
+		if !utils.SelectContextOrWait(ctx, s.cfg.sleepTime()) {
+			return nil, nil, ctx.Err()
+		}
 		return s.ArmPosition(ctx)
 	}
 
@@ -462,6 +467,10 @@ func (s *FrameCalibrationArmCamera) MoveToSavedPosition(ctx context.Context, pos
 
 	if _, err := s.motion.Move(ctx, req); err != nil {
 		return nil, nil, err
+	}
+	// sleep to give time to check camera
+	if !utils.SelectContextOrWait(ctx, s.cfg.sleepTime()) {
+		return nil, nil, ctx.Err()
 	}
 
 	return s.ArmPosition(ctx)
