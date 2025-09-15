@@ -52,8 +52,8 @@ type Config struct {
 
 	// joint positions are the easiest field for a user to access, but we may want to use poses in the config anyways
 	// or we use both with some predefined logic
-	JointPositions [][]float64               `json:"joint_positions"`
-	Guess          referenceframe.LinkConfig `json:"guess"`
+	JointPositions [][]float64 `json:"joint_positions"`
+	Guess          outputCfg   `json:"guess"`
 
 	SleepSeconds float64 `json:"sleep_seconds"`
 	ExpectedTags int     `json:"num_expected_tags"`
@@ -130,8 +130,8 @@ type FrameCalibrationArmCamera struct {
 }
 
 type calOutput struct {
-	Frame referenceframe.LinkConfig `json:"frame"`
-	Cost  float64                   `json:"cost"`
+	Frame outputCfg `json:"frame"`
+	Cost  float64   `json:"cost"`
 }
 
 func newFrameCalibrationArmCamera(ctx context.Context, deps resource.Dependencies, rawConf resource.Config, logger logging.Logger) (resource.Resource, error) {
@@ -467,7 +467,35 @@ func (s *FrameCalibrationArmCamera) MoveToSavedPosition(ctx context.Context, pos
 	return s.ArmPosition(ctx)
 }
 
-func makeFrameCfg(arm string, pose spatialmath.Pose) referenceframe.LinkConfig {
+type outputCfg struct {
+	Translation outputTranslation              `json:"translation"`
+	Orientation *spatialmath.OrientationConfig `json:"orientation"`
+	Parent      string                         `json:"parent,omitempty"`
+}
+
+func (cfg *outputCfg) Pose() (spatialmath.Pose, error) {
+	orient, err := cfg.Orientation.ParseConfig()
+	if err != nil {
+		return nil, err
+	}
+	return spatialmath.NewPose(cfg.Translation.toR3Vector(), orient), nil
+}
+
+type outputTranslation struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+	Z float64 `json:"z"`
+}
+
+func r3ToOutput(v r3.Vector) outputTranslation {
+	return outputTranslation{X: v.X, Y: v.Y, Z: v.Z}
+}
+
+func (trans *outputTranslation) toR3Vector() r3.Vector {
+	return r3.Vector{X: trans.X, Y: trans.Y, Z: trans.Z}
+}
+
+func makeFrameCfg(arm string, pose spatialmath.Pose) outputCfg {
 	orientationMap := map[string]any{}
 	orientationMap["x"] = pose.Orientation().OrientationVectorDegrees().OX
 	orientationMap["y"] = pose.Orientation().OrientationVectorDegrees().OY
@@ -475,7 +503,7 @@ func makeFrameCfg(arm string, pose spatialmath.Pose) referenceframe.LinkConfig {
 	orientationMap["th"] = pose.Orientation().OrientationVectorDegrees().Theta
 
 	orientCfg := spatialmath.OrientationConfig{Type: spatialmath.OrientationVectorDegreesType, Value: orientationMap}
-	return referenceframe.LinkConfig{Translation: pose.Point(), Orientation: &orientCfg, Parent: arm}
+	return outputCfg{Translation: r3ToOutput(pose.Point()), Orientation: &orientCfg, Parent: arm}
 }
 
 func (s *FrameCalibrationArmCamera) ArmPositionAndPoses(ctx context.Context) (calutils.ArmAndPoses, error) {
