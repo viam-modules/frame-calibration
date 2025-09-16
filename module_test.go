@@ -94,7 +94,7 @@ func TestGetConvAttr(t *testing.T) {
 	test.That(t, len(jointsAttr), test.ShouldEqual, 6)
 	test.That(t, jointsAttr[3][0], test.ShouldEqual, positions[3][0])
 	// the link config is tested in TestMakeFrameCfg
-	_, ok = attr["guess"].(referenceframe.LinkConfig)
+	_, ok = attr["guess"].(outputCfg)
 	test.That(t, ok, test.ShouldBeTrue)
 }
 
