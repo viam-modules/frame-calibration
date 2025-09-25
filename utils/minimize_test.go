@@ -122,7 +122,7 @@ func TestMinimizeResilienceToNoise(t *testing.T) {
 			test.That(t, err, test.ShouldBeNil)
 			test.That(t, spatialmath.R3VectorAlmostEqual(sol[0].Pose().Point(), res.Point(), testCase.allowedErrorTranslation), test.ShouldBeTrue)
 			test.That(t, spatialmath.OrientationAlmostEqualEps(sol[0].Pose().Orientation(), res.Orientation(), testCase.allowedErrorOV), test.ShouldBeTrue)
-			logger.Infof("with %s file and this seed guess: %v, this was the output of minimize: %v", testCase.file, spatialmath.NewZeroPose(), sol[0].Pose())
+			logger.Infof("with %s file and this seed guess: %v, this was the output of minimize: %v", testCase.file, res, sol[0].Pose())
 			logger.Infof("delta between desired and outcome: %v\n", spatialmath.PoseDelta(res, sol[0].Pose()))
 		})
 	}
