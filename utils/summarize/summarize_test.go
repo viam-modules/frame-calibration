@@ -3,6 +3,7 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
+	"framecalibration/utils"
 	"math"
 	"os"
 	"sort"
@@ -90,76 +91,6 @@ var (
 	}
 )
 
-type Vec3 struct {
-	X float64 `json:"X"`
-	Y float64 `json:"Y"`
-	Z float64 `json:"Z"`
-}
-
-type Orientation struct {
-	Th float64 `json:"th"`
-	X  float64 `json:"x"`
-	Y  float64 `json:"y"`
-	Z  float64 `json:"z"`
-}
-
-type Pose struct {
-	P Vec3        `json:"P"`
-	O Orientation `json:"O"`
-}
-
-type Joint struct {
-	Value float64 `json:"Value"`
-}
-
-type TagMap map[string]Pose
-
-type FrameEntry struct {
-	Joints []Joint `json:"Joints"`
-	Pose   Pose    `json:"Pose"`
-	Tags   TagMap  `json:"Tags"`
-}
-
-type FrameCalibrationFile struct {
-	Data   []FrameEntry `json:"Data"`
-	Result Pose         `json:"Result"`
-}
-
-type FrameSet []FrameEntry
-
-func (fe FrameEntry) jointsFloat64() []float64 {
-	out := make([]float64, len(fe.Joints))
-	for i, j := range fe.Joints {
-		out[i] = j.Value
-	}
-	return out
-}
-
-func (fe FrameEntry) tag(id int) (Pose, bool) {
-	key := strconv.Itoa(id)
-	p, ok := fe.Tags[key]
-	return p, ok
-}
-
-func loadFrameSet(path string) (FrameSet, *FrameCalibrationFile, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, nil, fmt.Errorf("open: %w", err)
-	}
-	defer f.Close()
-
-	var fc FrameCalibrationFile
-	if err := json.NewDecoder(f).Decode(&fc); err != nil {
-		return nil, nil, fmt.Errorf("decode: %w", err)
-	}
-
-	// Take indices 0..7 if available
-	n := min(len(fc.Data), numAprilTagImagingPositions)
-	fs := FrameSet(fc.Data[:n])
-
-	return fs, &fc, nil
-}
-
 func maxDiff(in []float64) float64 {
 	if len(in) == 0 {
 		return math.NaN()
@@ -241,34 +172,20 @@ func TestDetectionsAgainstReality(t *testing.T) {
 	m, err := referenceframe.ParseModelJSONFile(cfg.ArmKinematicsPath, "")
 	test.That(t, err, test.ShouldBeNil)
 
-	fs, fcFile, err := loadFrameSet(cfg.CalibrationDataPath)
+	data, cameraPoseOnArm, err := utils.ReadData(cfg.CalibrationDataPath)
 	test.That(t, err, test.ShouldBeNil)
-
-	cameraPoseOnArm := spatialmath.NewPose(
-		r3.Vector{
-			X: fcFile.Result.P.X,
-			Y: fcFile.Result.P.Y,
-			Z: fcFile.Result.P.Z,
-		},
-		&spatialmath.OrientationVectorDegrees{
-			OX:    fcFile.Result.O.X,
-			OY:    fcFile.Result.O.Y,
-			OZ:    fcFile.Result.O.Z,
-			Theta: fcFile.Result.O.Th,
-		},
-	)
 
 	allXs := make([][]float64, maxTags)
 	for i := range allXs {
-		allXs[i] = make([]float64, numAprilTagImagingPositions)
+		allXs[i] = make([]float64, len(data))
 	}
 	allYs := make([][]float64, maxTags)
 	for i := range allYs {
-		allYs[i] = make([]float64, numAprilTagImagingPositions)
+		allYs[i] = make([]float64, len(data))
 	}
 	allZs := make([][]float64, maxTags)
 	for i := range allZs {
-		allZs[i] = make([]float64, numAprilTagImagingPositions)
+		allZs[i] = make([]float64, len(data))
 	}
 
 	rotatePose := spatialmath.NewPoseFromOrientation(&spatialmath.OrientationVectorDegrees{
@@ -278,27 +195,18 @@ func TestDetectionsAgainstReality(t *testing.T) {
 		Theta: cfg.ArmFrameTheta,
 	})
 
-	for i := range fs {
-		e := fs[i]
-		js := e.jointsFloat64()
-		armPose, err := m.Transform(referenceframe.FloatsToInputs(js))
+	for i := range data {
+		armPose, err := m.Transform(data[i].Joints)
 		test.That(t, err, test.ShouldBeNil)
 		rotatedArmPose := spatialmath.Compose(rotatePose, armPose)
 
 		for tagID := 1; tagID <= maxTags; tagID++ {
-			if t, ok := e.tag(tagID); ok {
-				aprilTagPose := spatialmath.NewPose(
-					r3.Vector(t.P),
-					&spatialmath.OrientationVectorDegrees{
-						OX:    t.O.X,
-						OY:    t.O.Y,
-						OZ:    t.O.Z,
-						Theta: t.O.Th,
-					},
-				)
-
+			if tag, ok := data[i].Tags[strconv.Itoa(tagID)]; ok {
+				aprilTagPose := spatialmath.NewPose(tag.P, tag.O)
 				camPoseInWrld := spatialmath.Compose(rotatedArmPose, cameraPoseOnArm)
 				worldPose := spatialmath.Compose(camPoseInWrld, aprilTagPose)
+
+				fmt.Println("tagID-1: ", tagID-1)
 
 				allXs[tagID-1][i] = worldPose.Point().X
 				allYs[tagID-1][i] = worldPose.Point().Y
