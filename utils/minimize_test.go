@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"go.viam.com/rdk/logging"
@@ -66,4 +67,34 @@ func TestData1LessTags(t *testing.T) {
 	test.That(t, aa.OY, test.ShouldAlmostEqual, bb.OY, .01)
 	test.That(t, aa.OZ, test.ShouldAlmostEqual, bb.OZ, .01)
 	test.That(t, aa.Theta, test.ShouldAlmostEqual, bb.Theta, 1)
+}
+
+func TestMinimizeResilienceToNoise(t *testing.T) {
+	logger := logging.NewTestLogger(t)
+
+	files := []string{
+		"fuzz_0_mm.json",
+		"fuzz_1_mm.json",
+		"fuzz_3_mm.json",
+		"fuzz_5_mm.json",
+		"fuzz_10_mm.json",
+	}
+	location := "data"
+
+	for _, s := range files {
+		data, res, err := ReadData(filepath.Join(location, s))
+		test.That(t, err, test.ShouldBeNil)
+		logger.Infof("desired output of minimize function: %v", res)
+
+		sol, err := Minimize(context.Background(), defaultLimits, data, spatialmath.NewZeroPose(), logger)
+		test.That(t, err, test.ShouldBeNil)
+		logger.Infof("with %s file and this seed guess: %v, this was the output of minimize: %v", s, spatialmath.NewZeroPose(), sol[0].Pose())
+		logger.Infof("delta between desired and outcome: %v", spatialmath.PoseDelta(res, sol[0].Pose()))
+
+		sol, err = Minimize(context.Background(), defaultLimits, data, res, logger)
+		test.That(t, err, test.ShouldBeNil)
+		logger.Infof("with %s file and this seed guess: %v, this was the output of minimize: %v", s, res, sol[0].Pose())
+		logger.Infof("delta between desired and outcome: %v", spatialmath.PoseDelta(res, sol[0].Pose()))
+		logger.Info("----------------------------------------------------------------")
+	}
 }
