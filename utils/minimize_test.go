@@ -2,7 +2,6 @@ package utils
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"go.viam.com/rdk/logging"
@@ -72,29 +71,59 @@ func TestData1LessTags(t *testing.T) {
 func TestMinimizeResilienceToNoise(t *testing.T) {
 	logger := logging.NewTestLogger(t)
 
-	files := []string{
-		"fuzz_0_mm.json",
-		"fuzz_1_mm.json",
-		"fuzz_3_mm.json",
-		"fuzz_5_mm.json",
-		"fuzz_10_mm.json",
+	type testCase struct {
+		file                                    string
+		allowedErrorTranslation, allowedErrorOV float64
 	}
-	location := "data"
 
-	for _, s := range files {
-		data, res, err := ReadData(filepath.Join(location, s))
-		test.That(t, err, test.ShouldBeNil)
-		logger.Infof("desired output of minimize function: %v", res)
+	cases := []testCase{
+		{
+			file:                    "data/fuzz_0_mm.json",
+			allowedErrorTranslation: 1e-3,
+			allowedErrorOV:          1e-6,
+		},
+		{
+			file:                    "data/fuzz_1_mm.json",
+			allowedErrorTranslation: 0.15,
+			allowedErrorOV:          1e-6,
+		},
+		{
+			file:                    "data/fuzz_3_mm.json",
+			allowedErrorTranslation: 0.45,
+			allowedErrorOV:          1e-6,
+		},
+		{
+			file:                    "data/fuzz_5_mm.json",
+			allowedErrorTranslation: 0.5,
+			allowedErrorOV:          1e-5,
+		},
+		{
+			file:                    "data/fuzz_10_mm.json",
+			allowedErrorTranslation: 0.82,
+			allowedErrorOV:          1e-5,
+		},
+	}
 
-		sol, err := Minimize(context.Background(), defaultLimits, data, spatialmath.NewZeroPose(), logger)
-		test.That(t, err, test.ShouldBeNil)
-		logger.Infof("with %s file and this seed guess: %v, this was the output of minimize: %v", s, spatialmath.NewZeroPose(), sol[0].Pose())
-		logger.Infof("delta between desired and outcome: %v", spatialmath.PoseDelta(res, sol[0].Pose()))
+	for _, testCase := range cases {
+		t.Run(testCase.file, func(t *testing.T) {
+			data, res, err := ReadData(testCase.file)
+			test.That(t, err, test.ShouldBeNil)
 
-		sol, err = Minimize(context.Background(), defaultLimits, data, res, logger)
-		test.That(t, err, test.ShouldBeNil)
-		logger.Infof("with %s file and this seed guess: %v, this was the output of minimize: %v", s, res, sol[0].Pose())
-		logger.Infof("delta between desired and outcome: %v", spatialmath.PoseDelta(res, sol[0].Pose()))
-		logger.Info("----------------------------------------------------------------")
+			// test with zero pose
+			sol, err := Minimize(context.Background(), defaultLimits, data, spatialmath.NewZeroPose(), logger)
+			test.That(t, err, test.ShouldBeNil)
+			test.That(t, spatialmath.R3VectorAlmostEqual(sol[0].Pose().Point(), res.Point(), testCase.allowedErrorTranslation), test.ShouldBeTrue)
+			test.That(t, spatialmath.OrientationAlmostEqualEps(sol[0].Pose().Orientation(), res.Orientation(), testCase.allowedErrorOV), test.ShouldBeTrue)
+			logger.Infof("with %s file and this seed guess: %v, this was the output of minimize: %v", testCase.file, spatialmath.NewZeroPose(), sol[0].Pose())
+			logger.Infof("delta between desired and outcome: %v", spatialmath.PoseDelta(res, sol[0].Pose()))
+
+			// test with result
+			sol, err = Minimize(context.Background(), defaultLimits, data, res, logger)
+			test.That(t, err, test.ShouldBeNil)
+			test.That(t, spatialmath.R3VectorAlmostEqual(sol[0].Pose().Point(), res.Point(), testCase.allowedErrorTranslation), test.ShouldBeTrue)
+			test.That(t, spatialmath.OrientationAlmostEqualEps(sol[0].Pose().Orientation(), res.Orientation(), testCase.allowedErrorOV), test.ShouldBeTrue)
+			logger.Infof("with %s file and this seed guess: %v, this was the output of minimize: %v", testCase.file, spatialmath.NewZeroPose(), sol[0].Pose())
+			logger.Infof("delta between desired and outcome: %v\n", spatialmath.PoseDelta(res, sol[0].Pose()))
+		})
 	}
 }
