@@ -175,3 +175,27 @@
     :license_links: https://github.com/yosuke-furukawa/json5/blob/cf7bb3f354ffe5d5ad4c9b714895eab7e0498b5f/LICENSE.md
     :versions: []
     :when: 2025-04-11 20:04:09.564107000 Z
+- - :add_package
+  - codeberg.org/go-fonts/liberation
+  - v0.5.0
+  - &1
+    :who: benjirewis
+    :why:
+    :versions: []
+    :when: 2025-08-21 15:30:18.255117000 Z
+- - :license
+  - codeberg.org/go-fonts/liberation
+  - BSD-3
+  - *1
+- - :add_package
+  - codeberg.org/go-latex/latex
+  - v0.1.0
+  - &2
+    :who: benjirewis
+    :why:
+    :versions: []
+    :when: 2025-08-21 15:31:24.133755000 Z
+- - :license
+  - codeberg.org/go-latex/latex
+  - BSD-3
+  - *2

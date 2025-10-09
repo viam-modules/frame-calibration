@@ -107,7 +107,7 @@ func Minimize(
 		return nil, err
 	}
 
-	solutionGen := make(chan *ik.Solution, 1)
+	solutionChan := make(chan *ik.Solution, 1)
 	ikErr := make(chan error, 1)
 
 	var activeSolvers sync.WaitGroup
@@ -119,7 +119,8 @@ func Minimize(
 	// Spawn the IK solver to generate solutions until done
 	utils.PanicCapturingGo(func() {
 		defer activeSolvers.Done()
-		ikErr <- solver.Solve(ctxWithCancel, solutionGen, poseToFloats(seedPose), lossFunction, randSeed)
+		_, err := solver.Solve(ctxWithCancel, solutionChan, poseToFloats(seedPose), nil, lossFunction, randSeed)
+		ikErr <- err
 	})
 
 	solutions := []BasicNode{}
@@ -134,7 +135,7 @@ func Minimize(
 		}
 
 		select {
-		case solution := <-solutionGen:
+		case solution := <-solutionChan:
 			solutions = append(solutions, BasicNode{solution.Configuration, solution.Score})
 		default:
 		}
@@ -152,7 +153,7 @@ func Minimize(
 
 	activeSolvers.Wait()
 
-	close(solutionGen)
+	close(solutionChan)
 	close(ikErr)
 
 	if err != nil {
