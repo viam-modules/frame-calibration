@@ -463,7 +463,7 @@ func (s *FrameCalibrationArmCamera) MoveToSavedPosition(ctx context.Context, pos
 
 	posInF := referenceframe.NewPoseInFrame(s.cfg.ArmParent, goalPose)
 
-	req := motion.MoveReq{ComponentName: s.arm.Name(), Destination: posInF, Extra: map[string]any{"timeout": 30}}
+	req := motion.MoveReq{ComponentName: s.arm.Name().Name, Destination: posInF, Extra: map[string]any{"timeout": 30}}
 
 	if _, err := s.motion.Move(ctx, req); err != nil {
 		return nil, nil, err
@@ -631,7 +631,7 @@ func (s *FrameCalibrationArmCamera) RoughGuess(ctx context.Context) (*calutils.B
 	return &res[0], data, nil
 }
 
-func (s FrameCalibrationArmCamera) AutoCalibrate(ctx context.Context) (*calutils.BasicNode, error) {
+func (s *FrameCalibrationArmCamera) AutoCalibrate(ctx context.Context) (*calutils.BasicNode, error) {
 	guessPose, data, err := s.RoughGuess(ctx)
 	if err != nil {
 		return guessPose, err
@@ -672,7 +672,7 @@ func (s FrameCalibrationArmCamera) AutoCalibrate(ctx context.Context) (*calutils
 		return guessPose, err
 	}
 
-	start, err := s.motion.GetPose(ctx, resource.Name{Name: "guess"}, "world", []*referenceframe.LinkInFrame{guess}, nil)
+	start, err := s.motion.GetPose(ctx, "guess", "world", []*referenceframe.LinkInFrame{guess}, nil)
 	if err != nil {
 		return guessPose, err
 	}
@@ -692,7 +692,7 @@ func (s FrameCalibrationArmCamera) AutoCalibrate(ctx context.Context) (*calutils
 		_, err = s.motion.Move(
 			ctx,
 			motion.MoveReq{
-				ComponentName: resource.Name{Name: "guess"},
+				ComponentName: "guess",
 				Destination:   next,
 				WorldState:    ws,
 			},
