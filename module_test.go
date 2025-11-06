@@ -114,6 +114,15 @@ func TestDeletePositionFromArr(t *testing.T) {
 	})
 }
 
+func TestOutputCfgPose(t *testing.T) {
+	out := outputCfg{}
+	t.Run("test empty outputCfg", func(t *testing.T) {
+		pose, err := out.Pose()
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, pose, test.ShouldNotBeNil)
+	})
+}
+
 func TestMakeFrameCfg(t *testing.T) {
 	orientation := spatialmath.NewOrientationVectorDegrees()
 	orientation.OX = 1

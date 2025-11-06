@@ -483,10 +483,15 @@ type outputCfg struct {
 }
 
 func (cfg *outputCfg) Pose() (spatialmath.Pose, error) {
-	orient, err := cfg.Orientation.ParseConfig()
-	if err != nil {
-		return nil, err
+	orient := spatialmath.NewZeroOrientation()
+	var err error
+	if cfg.Orientation != nil {
+		orient, err = cfg.Orientation.ParseConfig()
+		if err != nil {
+			return nil, err
+		}
 	}
+
 	return spatialmath.NewPose(cfg.Translation.toR3Vector(), orient), nil
 }
 
