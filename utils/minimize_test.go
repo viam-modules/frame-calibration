@@ -67,3 +67,63 @@ func TestData1LessTags(t *testing.T) {
 	test.That(t, aa.OZ, test.ShouldAlmostEqual, bb.OZ, .01)
 	test.That(t, aa.Theta, test.ShouldAlmostEqual, bb.Theta, 1)
 }
+
+func TestMinimizeResilienceToNoise(t *testing.T) {
+	logger := logging.NewTestLogger(t)
+
+	type testCase struct {
+		file                                    string
+		allowedErrorTranslation, allowedErrorOV float64
+	}
+
+	cases := []testCase{
+		{
+			file:                    "data/fuzz_0_mm.json",
+			allowedErrorTranslation: 1e-3,
+			allowedErrorOV:          1e-6,
+		},
+		{
+			file:                    "data/fuzz_1_mm.json",
+			allowedErrorTranslation: 0.15,
+			allowedErrorOV:          1e-6,
+		},
+		{
+			file:                    "data/fuzz_3_mm.json",
+			allowedErrorTranslation: 0.45,
+			allowedErrorOV:          1e-6,
+		},
+		{
+			file:                    "data/fuzz_5_mm.json",
+			allowedErrorTranslation: 0.5,
+			allowedErrorOV:          1e-5,
+		},
+		{
+			file:                    "data/fuzz_10_mm.json",
+			allowedErrorTranslation: 0.82,
+			allowedErrorOV:          1e-5,
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.file, func(t *testing.T) {
+			data, res, err := ReadData(testCase.file)
+			test.That(t, err, test.ShouldBeNil)
+
+			// test with zero pose
+			sol, err := Minimize(context.Background(), defaultLimits, data, spatialmath.NewZeroPose(), logger)
+			test.That(t, err, test.ShouldBeNil)
+			test.That(t, spatialmath.R3VectorAlmostEqual(sol[0].Pose().Point(), res.Point(), testCase.allowedErrorTranslation), test.ShouldBeTrue)
+			test.That(t, spatialmath.OrientationAlmostEqualEps(sol[0].Pose().Orientation(), res.Orientation(), testCase.allowedErrorOV), test.ShouldBeTrue)
+			logger.Infof("with %s file and this seed guess: %v, this was the output of minimize: %v", testCase.file, spatialmath.NewZeroPose(), sol[0].Pose())
+			logger.Infof("delta between desired and outcome: %v", spatialmath.PoseDelta(res, sol[0].Pose()))
+
+			// test with result
+			sol, err = Minimize(context.Background(), defaultLimits, data, res, logger)
+			test.That(t, err, test.ShouldBeNil)
+			test.That(t, spatialmath.R3VectorAlmostEqual(sol[0].Pose().Point(), res.Point(), testCase.allowedErrorTranslation), test.ShouldBeTrue)
+			test.That(t, spatialmath.OrientationAlmostEqualEps(sol[0].Pose().Orientation(), res.Orientation(), testCase.allowedErrorOV), test.ShouldBeTrue)
+			logger.Infof("with %s file and this seed guess: %v, this was the output of minimize: %v", testCase.file, res, sol[0].Pose())
+			logger.Infof("delta between desired and outcome: %v\n", spatialmath.PoseDelta(res, sol[0].Pose()))
+		})
+	}
+}
