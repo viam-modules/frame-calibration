@@ -119,7 +119,7 @@ func TestOutputCfgPose(t *testing.T) {
 	t.Run("test empty outputCfg", func(t *testing.T) {
 		pose, err := out.Pose()
 		test.That(t, err, test.ShouldBeNil)
-		test.That(t, pose, test.ShouldNotBeNil)
+		test.That(t, pose, test.ShouldResemble, spatialmath.NewZeroPose())
 	})
 }
 
