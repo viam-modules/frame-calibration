@@ -7,6 +7,8 @@ import (
 	"math"
 	"slices"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/golang/geo/r3"
 
@@ -102,7 +104,11 @@ func Minimize(
 		return cumSum / float64(len(data[0].Tags))
 	}
 
-	solver, err := ik.CreateNloptSolver(limits, logger, iterations, false, false)
+	costFunc := func(ctx context.Context, input []float64) float64 {
+		return lossFunction(input)
+	}
+
+	solver, err := ik.CreateNloptSolver(logger, iterations, false, false, 0*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -116,10 +122,12 @@ func Minimize(
 	ctxWithCancel, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	var totalAttempts atomic.Int32
+
 	// Spawn the IK solver to generate solutions until done
 	utils.PanicCapturingGo(func() {
 		defer activeSolvers.Done()
-		_, err := solver.Solve(ctxWithCancel, solutionChan, poseToFloats(seedPose), nil, lossFunction, randSeed)
+		_, _, err := solver.Solve(ctxWithCancel, solutionChan, &totalAttempts, [][]float64{poseToFloats(seedPose)}, [][]referenceframe.Limit{limits}, costFunc, randSeed)
 		ikErr <- err
 	})
 
