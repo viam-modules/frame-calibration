@@ -206,6 +206,10 @@ func (s *FrameCalibrationArmCamera) Name() resource.Name {
 	return s.name
 }
 
+func (s *FrameCalibrationArmCamera) Status(ctx context.Context) (map[string]interface{}, error) {
+	return map[string]interface{}{}, nil
+}
+
 func (s *FrameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[string]interface{}) (map[string]interface{}, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -287,12 +291,12 @@ func (s *FrameCalibrationArmCamera) DoCommand(ctx context.Context, cmd map[strin
 
 			switch {
 			case index < 0:
-				s.cfg.JointPositions = append(s.cfg.JointPositions, referenceframe.InputsToFloats(pos))
+				s.cfg.JointPositions = append(s.cfg.JointPositions, pos)
 				resp["saveCalibrationPosition"] = fmt.Sprintf("joint position %v added to config", len(s.cfg.JointPositions)-1)
 			case index >= len(s.cfg.JointPositions):
 				return nil, fmt.Errorf("index %v is out of range, only %v positions are set", reflect.TypeOf(value), len(s.cfg.JointPositions))
 			default:
-				s.cfg.JointPositions[index] = referenceframe.InputsToFloats(pos)
+				s.cfg.JointPositions[index] = pos
 				resp["saveCalibrationPosition"] = fmt.Sprintf("joint position %v updated in config", index)
 			}
 			if err := s.updateCfg(ctx); err != nil {
@@ -440,7 +444,7 @@ func (s *FrameCalibrationArmCamera) MoveToSavedPosition(ctx context.Context, pos
 		return nil, nil, fmt.Errorf("pos %d invalid (%d)", pos, len(s.cfg.JointPositions))
 	}
 
-	inp := referenceframe.FloatsToInputs(s.cfg.JointPositions[pos])
+	inp := s.cfg.JointPositions[pos]
 
 	s.logger.Debugf("MoveToSavedPosition pos: %d raw: %v input: %v", pos, s.cfg.JointPositions[pos], inp)
 
@@ -549,7 +553,7 @@ func (s *FrameCalibrationArmCamera) roughGuessHelp2(ctx context.Context, start [
 			j[idx] = jj
 		}
 
-		j[joint].Value += (step * math.Pi / 180)
+		j[joint] += (step * math.Pi / 180)
 
 		err := s.arm.MoveToJointPositions(ctx, j, nil)
 		if err != nil {

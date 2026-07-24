@@ -140,11 +140,11 @@ func AverageJointPosition(ctx context.Context, a arm.Arm, n int) ([]referencefra
 			return nil, err
 		}
 		for i := range len(avg) {
-			avg[i].Value += j[i].Value
+			avg[i] += j[i]
 		}
 	}
 	for i := range len(avg) {
-		avg[i].Value /= float64(n)
+		avg[i] /= float64(n)
 	}
 	return avg, nil
 }

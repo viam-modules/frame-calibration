@@ -1,4 +1,3 @@
-
 ---
 - - :permit
   - MIT
@@ -199,3 +198,23 @@
   - codeberg.org/go-latex/latex
   - BSD-3
   - *2
+- - :license
+  - github.com/hashicorp/go-getter
+  - Mozilla Public License 2.0
+  - :who: martha-johnston
+    :why: license_finder cannot auto-detect; see https://github.com/hashicorp/go-getter/blob/main/LICENSE
+    :versions: []
+    :when: 2026-07-23 21:44:26.337740000 Z
+- - :license
+  - github.com/hashicorp/go-version
+  - Mozilla Public License 2.0
+  - :who: martha-johnston
+    :why: license_finder cannot auto-detect; see https://github.com/hashicorp/go-version/blob/main/LICENSE
+    :versions: []
+    :when: 2026-07-23 21:44:26.626039000 Z
+- - :permit
+  - Mozilla Public License 2.0
+  - :who: martha-johnston
+    :why: MPL 2.0 is file-level weak copyleft; permitted for third-party dependencies
+    :versions: []
+    :when: 2026-07-23 21:44:38.937475000 Z
