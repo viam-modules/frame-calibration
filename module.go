@@ -736,7 +736,7 @@ func (s *FrameCalibrationArmCamera) AutoCalibrate(ctx context.Context) (*calutil
 	}
 
 	p := sol[0]
-	s.logger.Info("Optimization Guess: ", p.Pose(), p.Pose)
+	s.logger.Info("Optimization Guess: ", p.Pose())
 
 	err = calutils.WriteData(data, p.Pose(), s.logger)
 	if err != nil {
